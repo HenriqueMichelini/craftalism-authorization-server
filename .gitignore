@@ -1,5 +1,6 @@
 # Compiled class file
 java/*.class
+java/bin
 
 # Log file
 java/*.log
