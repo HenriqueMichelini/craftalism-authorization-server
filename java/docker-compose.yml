@@ -1,0 +1,79 @@
+version: "3.8"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Auth Server — add this file's services into your existing craftalism
+# docker-compose.yml, or run it alongside it using:
+#
+#   docker compose -f docker-compose.yml -f auth-server/docker-compose.yml up
+#
+# The auth server joins the existing craftalism-network and reuses the
+# existing postgres container. It writes to a separate 'authserver' database
+# on the same Postgres instance — no data mixing with craftalism.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  # ── Database init ─────────────────────────────────────────────────────────
+  # One-shot container that creates the 'authserver' database if it doesn't
+  # exist yet. Runs before the auth server starts, then exits.
+  auth-db-init:
+    image: postgres:18
+    restart: "no"
+    environment:
+      PGPASSWORD: ${DB_PASSWORD}
+    command: >
+      sh -c "psql -h postgres -U ${DB_USER} -d postgres
+             -c \"SELECT 1 FROM pg_database WHERE datname='authserver'\"
+             | grep -q 1
+             || psql -h postgres -U ${DB_USER} -d postgres
+                -c \"CREATE DATABASE authserver;\""
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - craftalism-network
+
+  # ── Auth Server ──────────────────────────────────────────────────────────────
+  auth-server:
+    build:
+      context: ./auth-server
+      dockerfile: Dockerfile
+    container_name: craftalism-auth-server
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    environment:
+      # Reuses the same postgres container — separate database keeps schemas isolated
+      DB_URL: jdbc:postgresql://postgres:5432/authserver
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+
+      # RSA keys — PEM strings with literal \n between lines
+      # Generate with: ./auth-server/generate-keys.sh
+      RSA_PRIVATE_KEY: ${RSA_PRIVATE_KEY}
+      RSA_PUBLIC_KEY: ${RSA_PUBLIC_KEY}
+
+      # Minecraft server client credentials
+      MINECRAFT_CLIENT_ID: ${MINECRAFT_CLIENT_ID:-minecraft-server}
+      MINECRAFT_CLIENT_SECRET: ${MINECRAFT_CLIENT_SECRET}
+
+      # Public URL of this auth server (used as JWT issuer claim).
+      # Must be reachable by the API and the Minecraft plugin.
+      AUTH_ISSUER_URI: ${AUTH_ISSUER_URI:-http://localhost:9000}
+    depends_on:
+      auth-db-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -qO- http://localhost:9000/actuator/health || exit 1",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - craftalism-network
+
+networks:
+  craftalism-network:
+    external: true
