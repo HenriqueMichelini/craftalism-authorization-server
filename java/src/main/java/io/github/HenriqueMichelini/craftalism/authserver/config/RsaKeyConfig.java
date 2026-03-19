@@ -44,7 +44,7 @@ public class RsaKeyConfig {
         if (!privateKeyPem.isBlank() && !publicKeyPem.isBlank()) {
             log.info("RSA keys loaded from environment variables.");
             return new RsaKeyProperties(
-                parsePublicKey(privateKeyPem, publicKeyPem),
+                parsePublicKey(publicKeyPem),
                 parsePrivateKey(privateKeyPem)
             );
         }
@@ -77,8 +77,7 @@ public class RsaKeyConfig {
     /**
      * Parses an X.509 PEM public key.
      */
-    private RSAPublicKey parsePublicKey(String privateKeyPemUnused, String pem)
-        throws Exception {
+    private RSAPublicKey parsePublicKey(String pem) throws Exception {
         String stripped = stripPem(pem, "PUBLIC KEY");
         byte[] decoded = Base64.getDecoder().decode(stripped);
         X509EncodedKeySpec spec = new X509EncodedKeySpec(decoded);

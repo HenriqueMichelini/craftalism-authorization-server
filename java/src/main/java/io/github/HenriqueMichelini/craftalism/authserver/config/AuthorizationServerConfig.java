@@ -6,7 +6,9 @@ import com.nimbusds.jose.jwk.source.ImmutableJWKSet;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.proc.SecurityContext;
 import io.github.HenriqueMichelini.craftalism.authserver.keys.RsaKeyProperties;
-import java.util.UUID;
+import java.security.NoSuchAlgorithmException;
+import java.security.MessageDigest;
+import java.util.Base64;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -37,7 +39,7 @@ import org.springframework.security.web.util.matcher.RequestMatcher;
  *   <li>POST {@code /oauth2/token}        — issue tokens (client_credentials grant)</li>
  *   <li>POST {@code /oauth2/introspect}   — validate tokens</li>
  *   <li>POST {@code /oauth2/revoke}       — revoke tokens</li>
- *   <li>GET  {@code /.well-known/jwks.json} — public key set for JWT verification</li>
+ *   <li>GET  {@code /oauth2/jwks} — public key set for JWT verification</li>
  *   <li>GET  {@code /.well-known/oauth-authorization-server} — discovery metadata</li>
  * </ul>
  */
@@ -63,7 +65,7 @@ public class AuthorizationServerConfig {
             OAuth2AuthorizationServerConfigurer.authorizationServer();
 
         // Scope this filter chain only to the Authorization Server's own endpoints
-        // (e.g. /oauth2/token, /oauth2/introspect, /.well-known/jwks.json)
+        // (e.g. /oauth2/token, /oauth2/introspect, /oauth2/jwks)
         RequestMatcher endpointsMatcher =
             authorizationServerConfigurer.getEndpointsMatcher();
 
@@ -85,7 +87,7 @@ public class AuthorizationServerConfig {
 
     /**
      * Stores registered clients (the Minecraft server) in PostgreSQL.
-     * The {@link com.platform.authserver.service.ClientRegistrationService}
+     * The {@link io.github.HenriqueMichelini.craftalism.authserver.service.ClientRegistrationService}
      * seeds the Minecraft client on startup via this repository.
      */
     @Bean
@@ -128,14 +130,14 @@ public class AuthorizationServerConfig {
 
     /**
      * JWK source used to sign JWTs.
-     * The public key is exposed at {@code /.well-known/jwks.json} so the API
+     * The public key is exposed at {@code /oauth2/jwks} so the API
      * can validate tokens locally without calling the Auth Server.
      */
     @Bean
     public JWKSource<SecurityContext> jwkSource(RsaKeyProperties keys) {
         RSAKey rsaKey = new RSAKey.Builder(keys.publicKey())
             .privateKey(keys.privateKey())
-            .keyID(UUID.randomUUID().toString())
+            .keyID(calculateKeyId(keys))
             .build();
         return new ImmutableJWKSet<>(new JWKSet(rsaKey));
     }
@@ -160,5 +162,19 @@ public class AuthorizationServerConfig {
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
+    }
+
+    private String calculateKeyId(RsaKeyProperties keys) {
+        try {
+            byte[] digest = MessageDigest
+                .getInstance("SHA-256")
+                .digest(keys.publicKey().getEncoded());
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(digest);
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException(
+                "JVM does not support SHA-256 for RSA key identifier calculation.",
+                exception
+            );
+        }
     }
 }

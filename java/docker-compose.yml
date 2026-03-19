@@ -35,8 +35,8 @@ services:
   # ── Auth Server ──────────────────────────────────────────────────────────────
   auth-server:
     build:
-      context: ./auth-server
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: dockerfile
     container_name: craftalism-auth-server
     restart: unless-stopped
     ports:

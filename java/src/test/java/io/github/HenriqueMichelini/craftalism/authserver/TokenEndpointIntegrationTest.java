@@ -79,7 +79,23 @@ class TokenEndpointIntegrationTest {
     }
 
     @Test
+    void discoveryEndpoint_isPubliclyAccessible() throws Exception {
+        mockMvc
+            .perform(get("/.well-known/openid-configuration"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.issuer").value("http://localhost:9000"))
+            .andExpect(
+                jsonPath("$.jwks_uri").value("http://localhost:9000/oauth2/jwks")
+            );
+    }
+
+    @Test
     void healthEndpoint_isPubliclyAccessible() throws Exception {
         mockMvc.perform(get("/actuator/health")).andExpect(status().isOk());
+    }
+
+    @Test
+    void unknownEndpoint_isDeniedByDefaultPolicy() throws Exception {
+        mockMvc.perform(get("/internal")).andExpect(status().isForbidden());
     }
 }
