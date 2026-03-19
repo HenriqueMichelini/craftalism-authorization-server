@@ -14,7 +14,8 @@ import org.springframework.security.web.SecurityFilterChain;
  * <p>Intentionally minimal. All Authorization Server beans
  * (filter chain, RegisteredClientRepository, JWKSource, JwtDecoder,
  * AuthorizationServerSettings, PasswordEncoder) live in
- * {@link AuthorizationServerConfig} and {@link com.platform.authserver.service.ClientRegistrationService}.
+ * {@link AuthorizationServerConfig} and
+ * {@link io.github.HenriqueMichelini.craftalism.authserver.service.ClientRegistrationService}.
  *
  * <p>This class only covers what the Auth Server protocol filter chain (Order 1)
  * does NOT handle: the health probe and the blanket deny-all rule.
@@ -39,7 +40,7 @@ public class SecurityConfig {
                     // OAuth2 discovery + JWKS endpoints — must be public so the
                     // API and any tooling can fetch keys without credentials
                     .requestMatchers(
-                        "/.well-known/jwks.json",
+                        "/oauth2/jwks",
                         "/.well-known/oauth-authorization-server",
                         "/.well-known/openid-configuration"
                     )
