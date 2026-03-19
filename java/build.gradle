@@ -10,7 +10,7 @@ description = 'Authorization Server for Craftalism Ecosystem'
 
 java {
   toolchain {
-    languageVersion = JavaLanguageVersion.of(21)
+    languageVersion = JavaLanguageVersion.of(17)
   }
 }
 
