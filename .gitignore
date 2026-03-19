@@ -29,3 +29,6 @@ java/.gradle
 
 # Ignore Gradle build output directory
 java/build
+
+java/.env
+!java/.env.example
