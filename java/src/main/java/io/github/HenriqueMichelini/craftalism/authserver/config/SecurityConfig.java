@@ -3,6 +3,7 @@ package io.github.HenriqueMichelini.craftalism.authserver.config;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -42,12 +43,20 @@ public class SecurityConfig {
                     .requestMatchers(
                         "/oauth2/jwks",
                         "/.well-known/oauth-authorization-server",
-                        "/.well-known/openid-configuration"
+                        "/.well-known/openid-configuration",
+                        "/api/players",
+                        "/api/balances",
+                        "/api/transactions"
                     )
                     .permitAll()
-                    // Deny everything else
                     .anyRequest()
                     .denyAll()
+                    .requestMatchers(HttpMethod.GET, "/api/balances/**")
+                    .permitAll()
+                    .requestMatchers(HttpMethod.GET, "/api/players/**")
+                    .permitAll()
+                    .requestMatchers(HttpMethod.GET, "/api/transactions/**")
+                    .permitAll()
             )
             .csrf(csrf -> csrf.disable());
 
