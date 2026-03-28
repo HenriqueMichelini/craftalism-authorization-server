@@ -1,96 +1,96 @@
 # Craftalism Authorization Server
 
-OAuth 2.1 and OpenID Connect authorization server for the Craftalism ecosystem.
+> OAuth 2.1 and OpenID Connect authorization server that issues short-lived, RSA-signed JWT access tokens for trusted Craftalism services.
 
-This service is built for machine-to-machine authentication. It issues short-lived, RSA-signed JWT access tokens for trusted clients (currently the Minecraft game server plugin), exposes standard OAuth/OIDC discovery metadata, and provides a JWKS endpoint so downstream services can validate tokens locally.
+---
 
-## Project Purpose
+## Overview
 
-The project centralizes authentication for internal Craftalism services by:
+The authorization server centralizes authentication for the Craftalism ecosystem. It is designed for machine-to-machine flows: trusted clients (currently the Minecraft game server plugin) authenticate via `client_credentials` and receive a signed JWT that downstream services validate locally against the published JWKS.
 
-- registering confidential OAuth clients in a database,
-- issuing access tokens via `client_credentials`,
-- exposing public key material for token verification,
-- supporting token introspection and revocation endpoints,
-- enforcing a deny-by-default HTTP policy outside explicitly public endpoints.
+**Key capabilities:**
 
-## Current Feature Set
+- Issues access tokens via the OAuth 2.0 `client_credentials` grant at `POST /oauth2/token`.
+- Publishes RSA public keys at `GET /oauth2/jwks` for local token verification by downstream services.
+- Exposes standard OIDC and OAuth 2.0 discovery metadata.
+- Supports token introspection (`/oauth2/introspect`) and revocation (`/oauth2/revoke`).
+- Seeds one registered client (`minecraft-server` by default) idempotently on startup.
+- Enforces a deny-by-default HTTP policy; only explicitly listed public endpoints are accessible without a valid token.
 
-Implemented features in the current codebase:
+---
 
-- OAuth 2 token issuance (`client_credentials`) at `POST /oauth2/token`.
-- OIDC discovery metadata at `GET /.well-known/openid-configuration`.
-- Authorization Server metadata at `GET /.well-known/oauth-authorization-server`.
-- JWKS publishing for JWT verification at `GET /oauth2/jwks`.
-- OAuth 2 introspection and revocation protocol endpoints (`/oauth2/introspect`, `/oauth2/revoke`) provided by Spring Authorization Server.
-- JDBC-backed persistence for clients, authorizations, and consents.
-- Startup seeding of one service client (`minecraft-server` by default), idempotently.
-- RSA key loading from environment variables, with ephemeral fallback for local development.
-- Actuator health endpoint at `GET /actuator/health`.
-- Integration tests covering token issuance, JWT shape, public endpoints, and deny-by-default behavior.
+## Architecture
+
+The service is a layered Spring Boot application with explicit security configuration.
+
+### Security model
+
+Two filter chains run in order:
+
+1. **Order 1 — Protocol chain:** handles all `/oauth2/*` and discovery endpoints according to OAuth 2.0/OIDC rules.
+2. **Order 2 — Fallback chain:** stateless, session-less. Permits only the following paths; all others are denied with 401/403:
+   - `GET /actuator/health`
+   - `GET /oauth2/jwks`
+   - `GET /.well-known/oauth-authorization-server`
+   - `GET /.well-known/openid-configuration`
+
+### Key components
+
+**`AuthorizationServerConfig`** — wires protocol endpoints, JDBC-backed repositories and services, JWT/JWK components, issuer metadata, and password encoding.
+
+**`SecurityConfig`** — defines the fallback filter chain.
+
+**`RsaKeyConfig`** — parses PEM keys from environment variables, or generates an ephemeral RSA key pair if none are provided.
+
+**`ClientRegistrationService`** — seeds the registered OAuth client at startup. The operation is idempotent.
+
+**JDBC persistence** — Spring Authorization Server's JDBC repositories persist clients, authorizations, and consents into tables initialized by `schema.sql`.
+
+---
 
 ## Tech Stack
 
-- **Language:** Java 17
-- **Framework:** Spring Boot 3.5
-- **Security/Auth:** Spring Security + Spring Authorization Server
-- **Database Access:** Spring JDBC
-- **Database Runtime:** PostgreSQL
-- **Test Database:** H2 (PostgreSQL compatibility mode)
-- **Build Tool:** Gradle Wrapper (`./gradlew`)
-- **Packaging/Runtime:** Spring Boot executable JAR + Docker multi-stage image
+| Category | Technology |
+|---|---|
+| Language | Java 17 |
+| Framework | Spring Boot 3.5 |
+| Security / Auth | Spring Security + Spring Authorization Server |
+| Database Access | Spring JDBC |
+| Database (runtime) | PostgreSQL |
+| Database (tests) | H2 (PostgreSQL compatibility mode) |
+| Build Tool | Gradle Wrapper |
+| Packaging | Docker multi-stage image |
 
-## Architecture Overview
+---
 
-This project follows a layered Spring Boot architecture with explicit configuration:
+## Prerequisites
 
-- **Bootstrapping layer**
-  - `Application` starts the Spring context.
-- **Security/configuration layer**
-  - `AuthorizationServerConfig` wires protocol endpoints, JDBC repositories/services, JWT/JWK components, issuer metadata, and password encoding.
-  - `SecurityConfig` defines the fallback filter chain (stateless, health/discovery/JWKS public, all else denied).
-  - `RsaKeyConfig` parses configured PEM keys or generates ephemeral keys.
-- **Domain/service layer**
-  - `ClientRegistrationService` seeds a registered OAuth client at startup.
-- **Persistence layer**
-  - JDBC repositories/services from Spring Authorization Server persist into tables created by `schema.sql`.
+- Java 17+
+- Docker Engine 20.10+ and Docker Compose v2+ *(for containerized deployment only)*
+- A running PostgreSQL instance *(for local Gradle run)*
 
-### Request Security Model
-
-Two filter chains are used:
-
-1. **Order(1)**: Authorization Server protocol endpoints (`/oauth2/*`, discovery endpoints) authenticated per OAuth rules.
-2. **Order(2)**: fallback chain permits only:
-   - `/actuator/health`
-   - `/oauth2/jwks`
-   - `/.well-known/oauth-authorization-server`
-   - `/.well-known/openid-configuration`
-
-Everything else is denied.
+---
 
 ## Configuration
 
-The service is configured entirely through environment variables/properties.
+| Variable | Default | Description |
+|---|---|---|
+| `DB_URL` | — | **Required.** JDBC connection string, e.g. `jdbc:postgresql://localhost:5432/authserver`. |
+| `DB_USER` | — | **Required.** Database username. |
+| `DB_PASSWORD` | — | **Required.** Database password. |
+| `MINECRAFT_CLIENT_SECRET` | — | **Required.** Secret for the seeded `minecraft-server` OAuth client. |
+| `AUTH_ISSUER_URI` | `http://localhost:9000` | JWT issuer URI. Must match the value configured in downstream services. |
+| `MINECRAFT_CLIENT_ID` | `minecraft-server` | Client ID for the seeded OAuth client. |
+| `RSA_PRIVATE_KEY` | — | PEM-encoded RSA private key. Supports literal `\n` as line separator. |
+| `RSA_PUBLIC_KEY` | — | PEM-encoded RSA public key. Supports literal `\n` as line separator. |
 
-### Required environment variables
+> **Important:** If `RSA_PRIVATE_KEY` and `RSA_PUBLIC_KEY` are not provided, the service generates an ephemeral key pair on startup. Tokens issued with an ephemeral key become unverifiable after a restart. Do not use ephemeral keys in persistent environments.
 
-- `DB_URL` (example: `jdbc:postgresql://localhost:5432/authserver`)
-- `DB_USER`
-- `DB_PASSWORD`
-- `MINECRAFT_CLIENT_SECRET`
+For key generation instructions, see the [Craftalism Deployment repository](../craftalism-deployment).
 
-### Optional environment variables
+---
 
-- `AUTH_ISSUER_URI` (default: `http://localhost:9000`)
-- `MINECRAFT_CLIENT_ID` (default: `minecraft-server`)
-- `RSA_PRIVATE_KEY` (PEM string; supports literal `\n`)
-- `RSA_PUBLIC_KEY` (PEM string; supports literal `\n`)
-
-> If RSA keys are not provided, the application generates an ephemeral RSA key pair on startup. This is convenient for local testing but not safe for persistent environments because previously issued tokens become unverifiable after restart.
-
-## How to Run
-
-## 1) Local run (Gradle)
+## Running Locally
 
 ```bash
 cd java
@@ -101,32 +101,28 @@ export MINECRAFT_CLIENT_SECRET='replace_me'
 ./gradlew bootRun
 ```
 
-Service default URL: `http://localhost:9000`.
+Service is available at `http://localhost:9000`.
 
-## 2) Run tests
+---
 
-```bash
-cd java
-./gradlew test
-```
-
-Tests use `application-test.properties` and H2 in-memory DB.
-
-## 3) Docker
+## Running with Docker
 
 ```bash
 cd java
 docker compose up --build
 ```
 
-Notes:
+| Service | Port | URL |
+|---|---|---|
+| Authorization Server | 9000 | `http://localhost:9000` |
 
-- `docker-compose.yml` assumes an external `craftalism-network` and a healthy `postgres` service already exist.
-- A one-shot `auth-db-init` container attempts to create the `authserver` database before starting the app.
+> **Note:** `docker-compose.yml` expects an external `craftalism-network` and a healthy `postgres` service to already exist. A one-shot `auth-db-init` container attempts to create the `authserver` database before the application starts.
 
-## API Usage Example
+---
 
-Request a token using client credentials:
+## API Reference
+
+### Token issuance
 
 ```bash
 curl -X POST 'http://localhost:9000/oauth2/token' \
@@ -135,7 +131,7 @@ curl -X POST 'http://localhost:9000/oauth2/token' \
   -d 'grant_type=client_credentials&scope=api:read api:write'
 ```
 
-Expected response shape:
+Response:
 
 ```json
 {
@@ -146,51 +142,77 @@ Expected response shape:
 }
 ```
 
-Fetch public keys used to verify JWT signatures:
+### Public endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/oauth2/token` | Issue an access token. |
+| `POST` | `/oauth2/introspect` | Introspect a token. |
+| `POST` | `/oauth2/revoke` | Revoke a token. |
+| `GET` | `/oauth2/jwks` | Fetch public keys for JWT verification. |
+| `GET` | `/.well-known/openid-configuration` | OIDC discovery metadata. |
+| `GET` | `/.well-known/oauth-authorization-server` | OAuth 2.0 server metadata. |
+| `GET` | `/actuator/health` | Health check. |
+
+---
+
+## Testing
+
+Tests use `application-test.properties` and an H2 in-memory database in PostgreSQL compatibility mode.
 
 ```bash
-curl 'http://localhost:9000/oauth2/jwks'
+cd java
+./gradlew test
 ```
+
+Test coverage includes: token issuance, JWT shape validation, public endpoint accessibility, and deny-by-default behavior for protected paths.
+
+---
 
 ## Project Structure
 
 ```text
-.
-├── README.md
-└── java
-    ├── build.gradle
-    ├── docker-compose.yml
-    ├── dockerfile
-    ├── src/main/java/io/github/HenriqueMichelini/craftalism/authserver
+java/
+├── build.gradle
+├── docker-compose.yml
+├── dockerfile
+└── src/
+    ├── main/java/io/github/HenriqueMichelini/craftalism/authserver/
     │   ├── Application.java
-    │   ├── config
+    │   ├── config/
     │   │   ├── AuthorizationServerConfig.java
     │   │   ├── RsaKeyConfig.java
     │   │   └── SecurityConfig.java
-    │   ├── keys
+    │   ├── keys/
     │   │   └── RsaKeyProperties.java
-    │   └── service
+    │   └── service/
     │       └── ClientRegistrationService.java
-    ├── src/main/resources
-    │   ├── application.properties
-    │   ├── application-test.properties
-    │   └── schema.sql
-    └── src/test/java/.../TokenEndpointIntegrationTest.java
+    └── main/resources/
+        ├── application.properties
+        ├── application-test.properties
+        └── schema.sql
 ```
 
-## Known Gaps / Next Improvements
+---
 
-- Add an explicit key generation utility script (the code/comments reference `generate-keys.sh`, but it is not currently present in this repository).
-- Add API-level documentation for introspection and revocation examples.
+## Known Limitations
+
+- No `generate-keys.sh` script is present in this repository, despite being referenced in comments and the deployment repo. RSA keys must be generated manually with OpenSSL.
+- No introspection or revocation usage examples are documented.
+- Integration tests run against H2, not real PostgreSQL.
+- No CI pipeline is configured.
+
+---
+
+## Roadmap
+
+- Add a `generate-keys.sh` utility script for RSA key pair generation.
 - Add containerized integration tests against real PostgreSQL.
-- Add CI pipeline documentation and badges.
+- Document introspection and revocation endpoint usage with examples.
+- Add CI pipeline with lint, build, and test stages.
 
-## Recruiter/Portfolio Notes
+---
 
-This project demonstrates practical security engineering concerns:
+## License
 
-- protocol-compliant OAuth/OIDC endpoint exposure,
-- deterministic JWK key ID derivation,
-- stateless security defaults with least-privilege endpoint exposure,
-- startup idempotency for client provisioning,
-- reproducible build/test setup with Gradle and Docker.
+MIT. See [`LICENSE`](./LICENSE) for details.
