@@ -92,6 +92,34 @@ For key generation instructions, see the [Craftalism Deployment repository](../c
 
 ---
 
+
+## Dashboard/API 401 troubleshooting
+
+If the dashboard logs show `GET /api/players 401` and the auth-server logs do **not** show a matching `POST /oauth2/token` request around the same timestamp, the API is being called without an access token.
+
+For this architecture:
+- `craftalism-dashboard` (browser app) must send `Authorization: Bearer <access_token>` on every protected `/api/*` call.
+- The API will return `401` when the header is missing, malformed, expired, or issuer/signature validation fails.
+- This authorization server only seeds the `minecraft-server` machine client by default; dashboard authentication must be implemented explicitly in the dashboard/API integration layer.
+
+Minimal verification:
+
+```bash
+# 1) Obtain token from auth server
+curl -s -X POST 'http://localhost:9000/oauth2/token' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -u "minecraft-server:${MINECRAFT_CLIENT_SECRET}" \
+  -d 'grant_type=client_credentials&scope=api:read'
+
+# 2) Call API with token (should be non-401 if API trusts this issuer/jwks)
+curl -i 'http://localhost:8080/api/players' \
+  -H "Authorization: Bearer <access_token>"
+```
+
+If step 2 works but the browser still gets 401, the bug is in frontend-to-API auth propagation (missing bearer token on dashboard requests).
+
+---
+
 ## Running Locally
 
 ```bash
