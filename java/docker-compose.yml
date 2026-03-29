@@ -54,7 +54,7 @@ services:
 
       # Public URL of this auth server (used as JWT issuer claim).
       # Must be reachable by the API and the Minecraft plugin.
-      AUTH_ISSUER_URI: ${AUTH_ISSUER_URI:-http://localhost:9000}
+      AUTH_ISSUER_URI: ${AUTH_ISSUER_URI:-http://craftalism-auth-server:9000}
     depends_on:
       auth-db-init:
         condition: service_completed_successfully

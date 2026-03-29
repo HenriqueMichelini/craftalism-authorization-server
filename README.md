@@ -79,12 +79,14 @@ Two filter chains run in order:
 | `DB_USER` | — | **Required.** Database username. |
 | `DB_PASSWORD` | — | **Required.** Database password. |
 | `MINECRAFT_CLIENT_SECRET` | — | **Required.** Secret for the seeded `minecraft-server` OAuth client. |
-| `AUTH_ISSUER_URI` | `http://localhost:9000` | JWT issuer URI. Must match the value configured in downstream services. |
+| `AUTH_ISSUER_URI` | `http://craftalism-auth-server:9000` | JWT issuer URI. Must match the value configured in downstream services (especially `spring.security.oauth2.resourceserver.jwt.issuer-uri` in the API). |
 | `MINECRAFT_CLIENT_ID` | `minecraft-server` | Client ID for the seeded OAuth client. |
 | `RSA_PRIVATE_KEY` | — | PEM-encoded RSA private key. Supports literal `\n` as line separator. |
 | `RSA_PUBLIC_KEY` | — | PEM-encoded RSA public key. Supports literal `\n` as line separator. |
 
 > **Important:** If `RSA_PRIVATE_KEY` and `RSA_PUBLIC_KEY` are not provided, the service generates an ephemeral key pair on startup. Tokens issued with an ephemeral key become unverifiable after a restart. Do not use ephemeral keys in persistent environments.
+
+> **Docker note:** inside the Docker network, `localhost` points to the current container, not the auth server. If the API validates tokens against `http://craftalism-auth-server:9000` but this service issues tokens with `iss=http://localhost:9000`, the API will reject every token with 401. Keep one canonical issuer URI across all services.
 
 For key generation instructions, see the [Craftalism Deployment repository](../craftalism-deployment).
 
