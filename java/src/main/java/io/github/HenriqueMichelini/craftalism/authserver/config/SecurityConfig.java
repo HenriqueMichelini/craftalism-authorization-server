@@ -49,14 +49,14 @@ public class SecurityConfig {
                         "/api/transactions"
                     )
                     .permitAll()
-                    .anyRequest()
-                    .denyAll()
                     .requestMatchers(HttpMethod.GET, "/api/balances/**")
                     .permitAll()
                     .requestMatchers(HttpMethod.GET, "/api/players/**")
                     .permitAll()
                     .requestMatchers(HttpMethod.GET, "/api/transactions/**")
                     .permitAll()
+                    .anyRequest()
+                    .denyAll()
             )
             .csrf(csrf -> csrf.disable());
 
