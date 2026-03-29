@@ -35,28 +35,27 @@ public class SecurityConfig {
             )
             .authorizeHttpRequests(auth ->
                 auth
-                    // Health probe for Docker / OCI load balancer
-                    .requestMatchers("/actuator/health")
-                    .permitAll()
-                    // OAuth2 discovery + JWKS endpoints — must be public so the
-                    // API and any tooling can fetch keys without credentials
+                    // Health probe + public auth metadata endpoints
                     .requestMatchers(
+                        "/actuator/health",
                         "/oauth2/jwks",
                         "/.well-known/oauth-authorization-server",
-                        "/.well-known/openid-configuration",
+                        "/.well-known/openid-configuration"
+                    )
+                    .permitAll()
+                    // Public GET API resources
+                    .requestMatchers(
+                        HttpMethod.GET,
                         "/api/players",
+                        "/api/players/**",
                         "/api/balances",
-                        "/api/transactions"
+                        "/api/balances/**",
+                        "/api/transactions",
+                        "/api/transactions/**"
                     )
                     .permitAll()
                     .anyRequest()
                     .denyAll()
-                    .requestMatchers(HttpMethod.GET, "/api/balances/**")
-                    .permitAll()
-                    .requestMatchers(HttpMethod.GET, "/api/players/**")
-                    .permitAll()
-                    .requestMatchers(HttpMethod.GET, "/api/transactions/**")
-                    .permitAll()
             )
             .csrf(csrf -> csrf.disable());
 
