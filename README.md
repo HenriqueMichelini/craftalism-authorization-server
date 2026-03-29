@@ -79,14 +79,44 @@ Two filter chains run in order:
 | `DB_USER` | — | **Required.** Database username. |
 | `DB_PASSWORD` | — | **Required.** Database password. |
 | `MINECRAFT_CLIENT_SECRET` | — | **Required.** Secret for the seeded `minecraft-server` OAuth client. |
-| `AUTH_ISSUER_URI` | `http://localhost:9000` | JWT issuer URI. Must match the value configured in downstream services. |
+| `AUTH_ISSUER_URI` | `http://craftalism-auth-server:9000` | JWT issuer URI. Must match the value configured in downstream services (especially `spring.security.oauth2.resourceserver.jwt.issuer-uri` in the API). |
 | `MINECRAFT_CLIENT_ID` | `minecraft-server` | Client ID for the seeded OAuth client. |
 | `RSA_PRIVATE_KEY` | — | PEM-encoded RSA private key. Supports literal `\n` as line separator. |
 | `RSA_PUBLIC_KEY` | — | PEM-encoded RSA public key. Supports literal `\n` as line separator. |
 
 > **Important:** If `RSA_PRIVATE_KEY` and `RSA_PUBLIC_KEY` are not provided, the service generates an ephemeral key pair on startup. Tokens issued with an ephemeral key become unverifiable after a restart. Do not use ephemeral keys in persistent environments.
 
+> **Docker note:** inside the Docker network, `localhost` points to the current container, not the auth server. If the API validates tokens against `http://craftalism-auth-server:9000` but this service issues tokens with `iss=http://localhost:9000`, the API will reject every token with 401. Keep one canonical issuer URI across all services.
+
 For key generation instructions, see the [Craftalism Deployment repository](../craftalism-deployment).
+
+---
+
+
+## Dashboard/API 401 troubleshooting
+
+If the dashboard logs show `GET /api/players 401` and the auth-server logs do **not** show a matching `POST /oauth2/token` request around the same timestamp, the API is being called without an access token.
+
+For this architecture:
+- `craftalism-dashboard` (browser app) must send `Authorization: Bearer <access_token>` on every protected `/api/*` call.
+- The API will return `401` when the header is missing, malformed, expired, or issuer/signature validation fails.
+- This authorization server only seeds the `minecraft-server` machine client by default; dashboard authentication must be implemented explicitly in the dashboard/API integration layer.
+
+Minimal verification:
+
+```bash
+# 1) Obtain token from auth server
+curl -s -X POST 'http://localhost:9000/oauth2/token' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -u "minecraft-server:${MINECRAFT_CLIENT_SECRET}" \
+  -d 'grant_type=client_credentials&scope=api:read'
+
+# 2) Call API with token (should be non-401 if API trusts this issuer/jwks)
+curl -i 'http://localhost:8080/api/players' \
+  -H "Authorization: Bearer <access_token>"
+```
+
+If step 2 works but the browser still gets 401, the bug is in frontend-to-API auth propagation (missing bearer token on dashboard requests).
 
 ---
 
