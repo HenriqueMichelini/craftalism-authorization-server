@@ -1,9 +1,9 @@
 package io.github.HenriqueMichelini.craftalism.authserver;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
-import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -73,36 +73,45 @@ class TokenEndpointIntegrationTest {
             tokenResponse.get("access_token").asText()
         );
 
-        assertThat(accessToken.getHeader().getAlgorithm().getName())
-            .isEqualTo("RS256");
-        assertThat(accessToken.getJWTClaimsSet().getIssuer())
-            .isEqualTo("http://localhost:9000");
-        assertThat(accessToken.getJWTClaimsSet().getSubject())
-            .isEqualTo("minecraft-server");
+        assertThat(accessToken.getHeader().getAlgorithm().getName()).isEqualTo(
+            "RS256"
+        );
+        assertThat(accessToken.getJWTClaimsSet().getIssuer()).isEqualTo(
+            "http://localhost:9000"
+        );
+        assertThat(accessToken.getJWTClaimsSet().getSubject()).isEqualTo(
+            "minecraft-server"
+        );
         assertThat(accessToken.getJWTClaimsSet().getIssueTime()).isNotNull();
-        assertThat(accessToken.getJWTClaimsSet().getExpirationTime()).isNotNull();
-        assertThat(accessToken.getJWTClaimsSet().getClaim("scope"))
-            .satisfies(scopeClaim -> {
+        assertThat(
+            accessToken.getJWTClaimsSet().getExpirationTime()
+        ).isNotNull();
+        assertThat(accessToken.getJWTClaimsSet().getClaim("scope")).satisfies(
+            scopeClaim -> {
                 assertThat(scopeClaim).isInstanceOfAny(
                     String.class,
                     Collection.class
                 );
 
                 if (scopeClaim instanceof String stringScopeClaim) {
-                    assertThat(stringScopeClaim.split(" "))
-                        .contains("api:read", "api:write");
+                    assertThat(stringScopeClaim.split(" ")).contains(
+                        "api:read",
+                        "api:write"
+                    );
                     return;
                 }
 
                 @SuppressWarnings("unchecked")
-                Collection<String> collectionScopeClaim =
-                    (Collection<String>) scopeClaim;
+                Collection<String> collectionScopeClaim = (Collection<
+                    String
+                >) scopeClaim;
 
                 assertThat(collectionScopeClaim).contains(
                     "api:read",
                     "api:write"
                 );
-            });
+            }
+        );
     }
 
     @Test
@@ -149,7 +158,9 @@ class TokenEndpointIntegrationTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.issuer").value("http://localhost:9000"))
             .andExpect(
-                jsonPath("$.jwks_uri").value("http://localhost:9000/oauth2/jwks")
+                jsonPath("$.jwks_uri").value(
+                    "http://localhost:9000/oauth2/jwks"
+                )
             );
     }
 
@@ -161,5 +172,10 @@ class TokenEndpointIntegrationTest {
     @Test
     void unknownEndpoint_isDeniedByDefaultPolicy() throws Exception {
         mockMvc.perform(get("/internal")).andExpect(status().isForbidden());
+    }
+
+    @Test
+    void apiRoutesArePublicInFallbackPolicy() throws Exception {
+        mockMvc.perform(get("/api/players")).andExpect(status().isNotFound());
     }
 }

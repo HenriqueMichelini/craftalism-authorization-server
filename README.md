@@ -34,6 +34,8 @@ Two filter chains run in order:
    - `GET /.well-known/oauth-authorization-server`
    - `GET /.well-known/openid-configuration`
 
+> **Policy note:** `GET /api/players/**`, `GET /api/balances/**`, and `GET /api/transactions/**` are intentionally permitted by the fallback chain as a cross-service dashboard-read policy. They are passthrough policy matchers only, not implemented controllers in this auth-server codebase.
+
 ### Key components
 
 **`AuthorizationServerConfig`** — wires protocol endpoints, JDBC-backed repositories and services, JWT/JWK components, issuer metadata, and password encoding.
