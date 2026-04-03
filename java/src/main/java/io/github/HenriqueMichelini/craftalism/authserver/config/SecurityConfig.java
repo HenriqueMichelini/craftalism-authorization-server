@@ -3,7 +3,6 @@ package io.github.HenriqueMichelini.craftalism.authserver.config;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
-import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -41,17 +40,6 @@ public class SecurityConfig {
                         "/oauth2/jwks",
                         "/.well-known/oauth-authorization-server",
                         "/.well-known/openid-configuration"
-                    )
-                    .permitAll()
-                    // Public GET API resources
-                    .requestMatchers(
-                        HttpMethod.GET,
-                        "/api/players",
-                        "/api/players/**",
-                        "/api/balances",
-                        "/api/balances/**",
-                        "/api/transactions",
-                        "/api/transactions/**"
                     )
                     .permitAll()
                     .anyRequest()

@@ -162,4 +162,9 @@ class TokenEndpointIntegrationTest {
     void unknownEndpoint_isDeniedByDefaultPolicy() throws Exception {
         mockMvc.perform(get("/internal")).andExpect(status().isForbidden());
     }
+
+    @Test
+    void apiRoutesAreDeniedByFallbackPolicy() throws Exception {
+        mockMvc.perform(get("/api/players")).andExpect(status().isForbidden());
+    }
 }
