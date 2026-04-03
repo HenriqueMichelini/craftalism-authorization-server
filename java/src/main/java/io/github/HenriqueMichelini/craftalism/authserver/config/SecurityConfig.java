@@ -43,7 +43,10 @@ public class SecurityConfig {
                         "/.well-known/openid-configuration"
                     )
                     .permitAll()
-                    // Public GET API resources
+                    // Deliberate cross-service policy: keep these /api/** GET
+                    // routes public for the dashboard visualizer flow.
+                    // This auth server does not implement those controllers;
+                    // security must not block those paths.
                     .requestMatchers(
                         HttpMethod.GET,
                         "/api/players",
