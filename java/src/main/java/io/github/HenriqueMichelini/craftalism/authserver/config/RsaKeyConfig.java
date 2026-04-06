@@ -9,18 +9,20 @@ import java.security.interfaces.RSAPublicKey;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
+import java.util.Arrays;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
 
 /**
  * Loads the RSA keypair used for JWT signing.
  *
  * <p>In production, keys are injected via {@code RSA_PRIVATE_KEY} and
  * {@code RSA_PUBLIC_KEY} environment variables (PEM format, with literal
- * {@code \n} between lines). Generate them with {@code ./generate-keys.sh}.
+ * {@code \n} between lines).
  *
  * <p>If either key is absent (local dev only), an ephemeral keypair is
  * generated at startup with a loud warning. Never rely on this in production
@@ -39,6 +41,15 @@ public class RsaKeyConfig {
     @Value("${rsa.public-key:}")
     private String publicKeyPem;
 
+    @Value("${rsa.allow-ephemeral:false}")
+    private boolean allowEphemeral;
+
+    private final Environment environment;
+
+    public RsaKeyConfig(Environment environment) {
+        this.environment = environment;
+    }
+
     @Bean
     public RsaKeyProperties rsaKeyProperties() throws Exception {
         if (!privateKeyPem.isBlank() && !publicKeyPem.isBlank()) {
@@ -49,11 +60,17 @@ public class RsaKeyConfig {
             );
         }
 
+        if (!shouldAllowEphemeral()) {
+            throw new IllegalStateException(
+                "RSA key material is missing. Configure RSA_PRIVATE_KEY and RSA_PUBLIC_KEY or set rsa.allow-ephemeral=true for local development only."
+            );
+        }
+
         log.warn("=========================================================");
         log.warn("  RSA_PRIVATE_KEY / RSA_PUBLIC_KEY not set.");
         log.warn("  Generating an EPHEMERAL keypair.");
         log.warn("  All tokens will be invalid after a restart.");
-        log.warn("  Run ./generate-keys.sh and set the env vars.");
+        log.warn("  Configure RSA_PRIVATE_KEY and RSA_PUBLIC_KEY for persistent environments.");
         log.warn("=========================================================");
 
         return generateEphemeralKeyPair();
@@ -105,5 +122,19 @@ public class RsaKeyConfig {
             (RSAPublicKey) keyPair.getPublic(),
             (RSAPrivateKey) keyPair.getPrivate()
         );
+    }
+
+    private boolean shouldAllowEphemeral() {
+        if (allowEphemeral) {
+            return true;
+        }
+
+        return Arrays
+            .stream(environment.getActiveProfiles())
+            .anyMatch(profile ->
+                "local".equals(profile) ||
+                "dev".equals(profile) ||
+                "test".equals(profile)
+            );
     }
 }
