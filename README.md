@@ -34,8 +34,6 @@ Two filter chains run in order:
    - `GET /.well-known/oauth-authorization-server`
    - `GET /.well-known/openid-configuration`
 
-> **Policy note:** `GET /api/players/**`, `GET /api/balances/**`, and `GET /api/transactions/**` are intentionally permitted by the fallback chain as a cross-service dashboard-read policy. They are passthrough policy matchers only, not implemented controllers in this auth-server codebase.
-
 ### Key components
 
 **`AuthorizationServerConfig`** — wires protocol endpoints, JDBC-backed repositories and services, JWT/JWK components, issuer metadata, and password encoding.
@@ -85,6 +83,7 @@ Two filter chains run in order:
 | `MINECRAFT_CLIENT_ID` | `minecraft-server` | Client ID for the seeded OAuth client. |
 | `RSA_PRIVATE_KEY` | — | PEM-encoded RSA private key. Supports literal `\n` as line separator. |
 | `RSA_PUBLIC_KEY` | — | PEM-encoded RSA public key. Supports literal `\n` as line separator. |
+| `RSA_ALLOW_EPHEMERAL` | `false` | Allows startup without RSA key material. Intended only for local/dev/test use. |
 
 > **Important:** If `RSA_PRIVATE_KEY` and `RSA_PUBLIC_KEY` are not provided, the service generates an ephemeral key pair on startup. Tokens issued with an ephemeral key become unverifiable after a restart. Do not use ephemeral keys in persistent environments.
 
@@ -229,10 +228,10 @@ java/
 
 ## Known Limitations
 
-- No `generate-keys.sh` script is present in this repository, despite being referenced in comments and the deployment repo. RSA keys must be generated manually with OpenSSL.
+- No `generate-keys.sh` script is present in this repository. RSA keys must be generated externally (for example with OpenSSL) and injected via environment variables.
 - No introspection or revocation usage examples are documented.
 - Integration tests run against H2, not real PostgreSQL.
-- No CI pipeline is configured.
+- CI currently runs Gradle tests only; no additional static analysis or security scanning gates are configured.
 
 ---
 
@@ -241,7 +240,7 @@ java/
 - Add a `generate-keys.sh` utility script for RSA key pair generation.
 - Add containerized integration tests against real PostgreSQL.
 - Document introspection and revocation endpoint usage with examples.
-- Add CI pipeline with lint, build, and test stages.
+- Expand CI beyond tests (lint, dependency/security scanning, and build verification).
 
 ---
 

@@ -175,7 +175,7 @@ class TokenEndpointIntegrationTest {
     }
 
     @Test
-    void apiRoutesArePublicInFallbackPolicy() throws Exception {
-        mockMvc.perform(get("/api/players")).andExpect(status().isNotFound());
+    void apiRoutesAreDeniedByFallbackPolicy() throws Exception {
+        mockMvc.perform(get("/api/players")).andExpect(status().isForbidden());
     }
 }
