@@ -44,6 +44,7 @@ class ClientRegistrationServiceIntegrationTest {
 
         RegisteredClient initialClient = clientRepository.findByClientId(clientId);
         assertThat(initialClient).isNotNull();
+        assertThat(initialClient.getClientSecret()).startsWith("{bcrypt}");
         assertThat(passwordEncoder.matches(secretA, initialClient.getClientSecret()))
             .isTrue();
 
@@ -62,9 +63,11 @@ class ClientRegistrationServiceIntegrationTest {
         assertThat(
             passwordEncoder.matches(secretB, reconciledClient.getClientSecret())
         ).isTrue();
-        assertThat(reconciledClient.getClientAuthenticationMethods()).containsExactly(
-            ClientAuthenticationMethod.CLIENT_SECRET_BASIC
-        );
+        assertThat(reconciledClient.getClientAuthenticationMethods())
+            .containsExactlyInAnyOrder(
+                ClientAuthenticationMethod.CLIENT_SECRET_BASIC,
+                ClientAuthenticationMethod.CLIENT_SECRET_POST
+            );
         assertThat(reconciledClient.getAuthorizationGrantTypes()).containsExactly(
             AuthorizationGrantType.CLIENT_CREDENTIALS
         );

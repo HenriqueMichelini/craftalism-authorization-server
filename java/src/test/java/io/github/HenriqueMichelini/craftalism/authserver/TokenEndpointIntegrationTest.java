@@ -50,6 +50,24 @@ class TokenEndpointIntegrationTest {
     }
 
     @Test
+    void tokenEndpoint_withBodyClientCredentials_returnsJwt()
+        throws Exception {
+        mockMvc
+            .perform(
+                post("/oauth2/token")
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .param("grant_type", "client_credentials")
+                    .param("scope", "api:read")
+                    .param("client_id", "minecraft-server")
+                    .param("client_secret", "test-secret")
+            )
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.access_token").isNotEmpty())
+            .andExpect(jsonPath("$.token_type").value("Bearer"))
+            .andExpect(jsonPath("$.expires_in").isNumber());
+    }
+
+    @Test
     void tokenEndpoint_issuesJwtCompatibleWithCraftalismApiResourceServer()
         throws Exception {
         String responseBody = mockMvc

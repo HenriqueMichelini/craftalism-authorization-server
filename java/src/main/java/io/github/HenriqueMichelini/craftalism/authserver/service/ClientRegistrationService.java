@@ -7,6 +7,7 @@ import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
@@ -35,6 +36,8 @@ public class ClientRegistrationService {
     private static final Logger log = LoggerFactory.getLogger(
         ClientRegistrationService.class
     );
+    private static final PasswordEncoder LEGACY_BCRYPT_PASSWORD_ENCODER =
+        new BCryptPasswordEncoder();
 
     private final RegisteredClientRepository clientRepository;
     private final PasswordEncoder passwordEncoder;
@@ -74,6 +77,10 @@ public class ClientRegistrationService {
             // This is the most interoperable and widely supported method
             .clientAuthenticationMethod(
                 ClientAuthenticationMethod.CLIENT_SECRET_BASIC
+            )
+            // CLIENT_SECRET_POST: credentials sent in form body
+            .clientAuthenticationMethod(
+                ClientAuthenticationMethod.CLIENT_SECRET_POST
             )
             // client_credentials: machine-to-machine, no user involved
             .authorizationGrantType(AuthorizationGrantType.CLIENT_CREDENTIALS)
@@ -123,14 +130,19 @@ public class ClientRegistrationService {
         RegisteredClient existingClient,
         String normalizedClientSecret
     ) {
-        boolean secretDrift = !passwordEncoder.matches(
+        boolean secretDrift = !secretMatchesConfigured(
             normalizedClientSecret,
             existingClient.getClientSecret()
         );
 
         boolean authMethodDrift = !existingClient
             .getClientAuthenticationMethods()
-            .equals(Set.of(ClientAuthenticationMethod.CLIENT_SECRET_BASIC));
+            .equals(
+                Set.of(
+                    ClientAuthenticationMethod.CLIENT_SECRET_BASIC,
+                    ClientAuthenticationMethod.CLIENT_SECRET_POST
+                )
+            );
 
         boolean grantTypeDrift = !existingClient
             .getAuthorizationGrantTypes()
@@ -153,6 +165,7 @@ public class ClientRegistrationService {
             clientBuilder.clientAuthenticationMethods(methods -> {
                 methods.clear();
                 methods.add(ClientAuthenticationMethod.CLIENT_SECRET_BASIC);
+                methods.add(ClientAuthenticationMethod.CLIENT_SECRET_POST);
             });
         }
 
@@ -165,5 +178,23 @@ public class ClientRegistrationService {
 
         clientRepository.save(clientBuilder.build());
         log.info("Client '{}' reconciled with configured seed contract.", clientId);
+    }
+
+    private boolean secretMatchesConfigured(
+        String rawSecret,
+        String storedSecret
+    ) {
+        try {
+            return passwordEncoder.matches(rawSecret, storedSecret);
+        } catch (IllegalArgumentException exception) {
+            if (storedSecret != null && storedSecret.startsWith("$2")) {
+                return LEGACY_BCRYPT_PASSWORD_ENCODER.matches(
+                    rawSecret,
+                    storedSecret
+                );
+            }
+
+            return false;
+        }
     }
 }
