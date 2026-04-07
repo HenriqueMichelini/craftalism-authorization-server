@@ -2,6 +2,7 @@ package io.github.HenriqueMichelini.craftalism.authserver.service;
 
 import jakarta.annotation.PostConstruct;
 import java.time.Duration;
+import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,8 +55,11 @@ public class ClientRegistrationService {
 
     @PostConstruct
     public void registerMinecraftServerClient() {
-        if (clientRepository.findByClientId(clientId) != null) {
-            log.info("Client '{}' already registered — skipping.", clientId);
+        String normalizedClientSecret = normalizeAndValidateClientSecret();
+        RegisteredClient existingClient = clientRepository.findByClientId(clientId);
+
+        if (existingClient != null) {
+            reconcileExistingClient(existingClient, normalizedClientSecret);
             return;
         }
 
@@ -65,7 +69,7 @@ public class ClientRegistrationService {
             .clientId(clientId)
             .clientName("Minecraft Game Server")
             // Secret is bcrypt-hashed before storage
-            .clientSecret(passwordEncoder.encode(clientSecret))
+            .clientSecret(passwordEncoder.encode(normalizedClientSecret))
             // CLIENT_SECRET_BASIC: credentials sent via HTTP Basic Auth header
             // This is the most interoperable and widely supported method
             .clientAuthenticationMethod(
@@ -96,5 +100,70 @@ public class ClientRegistrationService {
 
         clientRepository.save(minecraftServer);
         log.info("Client '{}' registered successfully.", clientId);
+    }
+
+    private String normalizeAndValidateClientSecret() {
+        if (clientSecret == null) {
+            throw new IllegalStateException(
+                "minecraft.client.secret must be provided."
+            );
+        }
+
+        String normalizedSecret = clientSecret.trim();
+        if (normalizedSecret.isBlank()) {
+            throw new IllegalStateException(
+                "minecraft.client.secret must not be blank."
+            );
+        }
+
+        return normalizedSecret;
+    }
+
+    private void reconcileExistingClient(
+        RegisteredClient existingClient,
+        String normalizedClientSecret
+    ) {
+        boolean secretDrift = !passwordEncoder.matches(
+            normalizedClientSecret,
+            existingClient.getClientSecret()
+        );
+
+        boolean authMethodDrift = !existingClient
+            .getClientAuthenticationMethods()
+            .equals(Set.of(ClientAuthenticationMethod.CLIENT_SECRET_BASIC));
+
+        boolean grantTypeDrift = !existingClient
+            .getAuthorizationGrantTypes()
+            .equals(Set.of(AuthorizationGrantType.CLIENT_CREDENTIALS));
+
+        if (!secretDrift && !authMethodDrift && !grantTypeDrift) {
+            log.info("Client '{}' already registered and in sync.", clientId);
+            return;
+        }
+
+        RegisteredClient.Builder clientBuilder = RegisteredClient.from(
+            existingClient
+        );
+
+        if (secretDrift) {
+            clientBuilder.clientSecret(passwordEncoder.encode(normalizedClientSecret));
+        }
+
+        if (authMethodDrift) {
+            clientBuilder.clientAuthenticationMethods(methods -> {
+                methods.clear();
+                methods.add(ClientAuthenticationMethod.CLIENT_SECRET_BASIC);
+            });
+        }
+
+        if (grantTypeDrift) {
+            clientBuilder.authorizationGrantTypes(types -> {
+                types.clear();
+                types.add(AuthorizationGrantType.CLIENT_CREDENTIALS);
+            });
+        }
+
+        clientRepository.save(clientBuilder.build());
+        log.info("Client '{}' reconciled with configured seed contract.", clientId);
     }
 }
