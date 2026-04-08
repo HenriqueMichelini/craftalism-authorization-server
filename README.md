@@ -94,30 +94,33 @@ For key generation instructions, see the [Craftalism Deployment repository](../c
 ---
 
 
-## Dashboard/API 401 troubleshooting
+## Dashboard/API auth troubleshooting
 
-If the dashboard logs show `GET /api/players 401` and the auth-server logs do **not** show a matching `POST /oauth2/token` request around the same timestamp, the API is being called without an access token.
+`GET /api/*` routes are intentionally public in the current API security model, so a `GET /api/players 401` usually means the request never matched the expected read-only route or the wrong service/port is being called.
 
-For this architecture:
-- `craftalism-dashboard` (browser app) must send `Authorization: Bearer <access_token>` on every protected `/api/*` call.
-- The API will return `401` when the header is missing, malformed, expired, or issuer/signature validation fails.
-- This authorization server only seeds the `minecraft-server` machine client by default; dashboard authentication must be implemented explicitly in the dashboard/API integration layer.
+Focus auth debugging on protected write routes instead:
+- `craftalism-dashboard` does not need a bearer token for read-only `GET /api/*` requests today.
+- The API requires `Authorization: Bearer <access_token>` on protected write requests such as `POST /api/players` and `POST /api/balances/transfer`.
+- The API will return `401` when a protected request is missing a token or the token is malformed, expired, or fails issuer/signature validation.
+- This authorization server only seeds the `minecraft-server` machine client by default; any browser-facing authentication must be implemented explicitly in the dashboard/API integration layer.
 
-Minimal verification:
+Minimal verification for a protected route:
 
 ```bash
 # 1) Obtain token from auth server
 curl -s -X POST 'http://localhost:9000/oauth2/token' \
   -H 'Content-Type: application/x-www-form-urlencoded' \
   -u "minecraft-server:${MINECRAFT_CLIENT_SECRET}" \
-  -d 'grant_type=client_credentials&scope=api:read'
+  -d 'grant_type=client_credentials&scope=api:write'
 
-# 2) Call API with token (should be non-401 if API trusts this issuer/jwks)
-curl -i 'http://localhost:8080/api/players' \
-  -H "Authorization: Bearer <access_token>"
+# 2) Call a protected API route with the token
+curl -i -X POST 'http://localhost:3000/api/players' \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer <access_token>" \
+  -d '{"uuid":"00000000-0000-0000-0000-000000000001","name":"SmokeTest"}'
 ```
 
-If step 2 works but the browser still gets 401, the bug is in frontend-to-API auth propagation (missing bearer token on dashboard requests).
+If step 2 works but another protected client request still gets `401`, the bug is in client-to-API auth propagation or in issuer/JWKS configuration between the API and authorization server.
 
 ---
 

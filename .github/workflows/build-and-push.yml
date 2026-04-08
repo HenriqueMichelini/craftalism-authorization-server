@@ -10,7 +10,34 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
+  quality-gate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        working-directory: java
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      - name: Verify Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v4
+
+      - name: Run release verification
+        run: ./gradlew --no-daemon clean test
+
   build-and-push:
+    needs: quality-gate
     runs-on: ubuntu-latest
     permissions:
       contents: read
