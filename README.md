@@ -209,7 +209,7 @@ Test coverage includes: token issuance, JWT shape validation, public endpoint ac
 java/
 ├── build.gradle
 ├── docker-compose.yml
-├── dockerfile
+├── Dockerfile
 └── src/
     ├── main/java/io/github/HenriqueMichelini/craftalism/authserver/
     │   ├── Application.java

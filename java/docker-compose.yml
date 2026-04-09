@@ -32,7 +32,7 @@ services:
   auth-server:
     build:
       context: .
-      dockerfile: dockerfile
+      dockerfile: Dockerfile
     container_name: craftalism-auth-server
     restart: unless-stopped
     ports:
