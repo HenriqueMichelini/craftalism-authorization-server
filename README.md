@@ -89,7 +89,7 @@ Two filter chains run in order:
 
 > **Docker note:** inside the Docker network, `localhost` points to the current container, not the auth server. If the API validates tokens against `http://craftalism-auth-server:9000` but this service issues tokens with `iss=http://localhost:9000`, the API will reject every token with 401. Keep one canonical issuer URI across all services.
 
-For key generation instructions, see the [Craftalism Deployment repository](../craftalism-deployment).
+For key generation and deployment wiring guidance, see the [Craftalism Deployment repository](https://github.com/HenriqueMichelini/craftalism-deployment).
 
 ---
 
@@ -176,17 +176,24 @@ Response:
 }
 ```
 
-### Public endpoints
+### OAuth2 protocol endpoints
 
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/oauth2/token` | Issue an access token. |
-| `POST` | `/oauth2/introspect` | Introspect a token. |
-| `POST` | `/oauth2/revoke` | Revoke a token. |
-| `GET` | `/oauth2/jwks` | Fetch public keys for JWT verification. |
-| `GET` | `/.well-known/openid-configuration` | OIDC discovery metadata. |
-| `GET` | `/.well-known/oauth-authorization-server` | OAuth 2.0 server metadata. |
-| `GET` | `/actuator/health` | Health check. |
+These endpoints are part of the authorization-server protocol surface. They are not anonymous public routes: token, introspection, and revocation requests require appropriate client authentication according to the OAuth2 protocol.
+
+| Method | Path | Access | Description |
+|---|---|---|---|
+| `POST` | `/oauth2/token` | client-authenticated | Issue an access token. |
+| `POST` | `/oauth2/introspect` | client-authenticated | Introspect a token. |
+| `POST` | `/oauth2/revoke` | client-authenticated | Revoke a token. |
+
+### Anonymous discovery and health endpoints
+
+| Method | Path | Access | Description |
+|---|---|---|---|
+| `GET` | `/oauth2/jwks` | anonymous | Fetch public keys for JWT verification. |
+| `GET` | `/.well-known/openid-configuration` | anonymous | OIDC discovery metadata. |
+| `GET` | `/.well-known/oauth-authorization-server` | anonymous | OAuth 2.0 server metadata. |
+| `GET` | `/actuator/health` | anonymous | Health check. |
 
 ---
 
@@ -249,4 +256,4 @@ java/
 
 ## License
 
-MIT. See [`LICENSE`](./LICENSE) for details.
+This repository currently does not include a checked-in `LICENSE` file. Align the repository metadata and README with the intended license before claiming one here.
