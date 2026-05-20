@@ -14,7 +14,8 @@ The authorization server centralizes authentication for the Craftalism ecosystem
 - Publishes RSA public keys at `GET /oauth2/jwks` for local token verification by downstream services.
 - Exposes standard OIDC and OAuth 2.0 discovery metadata.
 - Supports token introspection (`/oauth2/introspect`) and revocation (`/oauth2/revoke`).
-- Seeds one registered client (`minecraft-server` by default) idempotently on startup.
+- Seeds the Minecraft registered client (`minecraft-server` by default) idempotently on startup.
+- Optionally seeds a confidential dashboard/BFF client for server-side dashboard write proxies.
 - Enforces a deny-by-default HTTP policy; only explicitly listed public endpoints are accessible without a valid token.
 
 ---
@@ -81,6 +82,8 @@ Two filter chains run in order:
 | `MINECRAFT_CLIENT_SECRET` | — | **Required.** Secret for the seeded `minecraft-server` OAuth client. |
 | `AUTH_ISSUER_URI` | `http://craftalism-auth-server:9000` | JWT issuer URI. Must match the value configured in downstream services (especially `spring.security.oauth2.resourceserver.jwt.issuer-uri` in the API). |
 | `MINECRAFT_CLIENT_ID` | `minecraft-server` | Client ID for the seeded OAuth client. |
+| `DASHBOARD_BFF_CLIENT_ID` | `dashboard-bff` | Client ID for the optional confidential dashboard/BFF client. |
+| `DASHBOARD_BFF_CLIENT_SECRET` | — | Optional secret for the dashboard/BFF client. When blank, the client is not registered. Keep this server-side only; never expose it in browser-visible dashboard config. |
 | `RSA_PRIVATE_KEY` | — | PEM-encoded RSA private key. Supports literal `\n` as line separator. |
 | `RSA_PUBLIC_KEY` | — | PEM-encoded RSA public key. Supports literal `\n` as line separator. |
 | `RSA_ALLOW_EPHEMERAL` | `false` | Allows startup without RSA key material. Intended only for local/dev/test use. |
@@ -102,7 +105,8 @@ Focus auth debugging on protected write routes instead:
 - `craftalism-dashboard` does not need a bearer token for read-only `GET /api/*` requests today.
 - The API requires `Authorization: Bearer <access_token>` on protected write requests such as `POST /api/players` and `POST /api/balances/transfer`.
 - The API will return `401` when a protected request is missing a token or the token is malformed, expired, or fails issuer/signature validation.
-- This authorization server only seeds the `minecraft-server` machine client by default; any browser-facing authentication must be implemented explicitly in the dashboard/API integration layer.
+- This authorization server seeds machine clients only. Browser-facing secrets are not supported; dashboard writes should use a server-side BFF/edge component or a separately scoped browser user-auth feature.
+- When `DASHBOARD_BFF_CLIENT_SECRET` is configured, the `dashboard-bff` confidential client can request `api:write` tokens with `client_credentials` for approved server-side proxy writes.
 
 Minimal verification for a protected route:
 
@@ -122,6 +126,22 @@ curl -i -X POST 'http://localhost:3000/api/players' \
 
 If step 2 works but another protected client request still gets `401`, the bug is in client-to-API auth propagation or in issuer/JWKS configuration between the API and authorization server.
 
+Minimal verification for a dashboard/BFF write proxy:
+
+```bash
+# 1) Configure the auth server with a server-side secret
+export DASHBOARD_BFF_CLIENT_ID='dashboard-bff'
+export DASHBOARD_BFF_CLIENT_SECRET='replace_me'
+
+# 2) Obtain a token from the server-side BFF/edge process, not from browser code
+curl -s -X POST 'http://localhost:9000/oauth2/token' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -u "dashboard-bff:${DASHBOARD_BFF_CLIENT_SECRET}" \
+  -d 'grant_type=client_credentials&scope=api:write'
+
+# 3) The BFF/edge process calls the protected API write with that bearer token.
+```
+
 ---
 
 ## Running Locally
@@ -132,6 +152,7 @@ export DB_URL='jdbc:postgresql://localhost:5432/authserver'
 export DB_USER='your_user'
 export DB_PASSWORD='your_password'
 export MINECRAFT_CLIENT_SECRET='replace_me'
+export DASHBOARD_BFF_CLIENT_SECRET='replace_me_dashboard_bff_secret'
 ./gradlew bootRun
 ```
 

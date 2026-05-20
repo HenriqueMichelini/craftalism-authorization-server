@@ -19,13 +19,13 @@ import org.springframework.security.oauth2.server.authorization.settings.TokenSe
 import org.springframework.stereotype.Service;
 
 /**
- * Seeds the Minecraft server's OAuth2 client registration into PostgreSQL
- * on application startup — only if the client doesn't already exist.
+ * Seeds configured OAuth2 client registrations into PostgreSQL
+ * on application startup — only if the clients don't already exist.
  *
  * <p>This is idempotent: re-deploying the service will not create duplicates
  * or overwrite an existing registration.
  *
- * <p>The Minecraft server authenticates using the
+ * <p>The seeded service clients authenticate using the
  * <a href="https://datatracker.ietf.org/doc/html/rfc6749#section-4.4">
  * client_credentials</a> grant, which is designed exactly for this use case:
  * machine-to-machine authentication with no human user involved.
@@ -38,15 +38,29 @@ public class ClientRegistrationService {
     );
     private static final PasswordEncoder LEGACY_BCRYPT_PASSWORD_ENCODER =
         new BCryptPasswordEncoder();
+    private static final Set<ClientAuthenticationMethod> CONFIDENTIAL_CLIENT_AUTH_METHODS =
+        Set.of(
+            ClientAuthenticationMethod.CLIENT_SECRET_BASIC,
+            ClientAuthenticationMethod.CLIENT_SECRET_POST
+        );
+    private static final Set<AuthorizationGrantType> CLIENT_CREDENTIALS_GRANT_TYPES =
+        Set.of(AuthorizationGrantType.CLIENT_CREDENTIALS);
+    private static final Set<String> API_SCOPES = Set.of("api:read", "api:write");
 
     private final RegisteredClientRepository clientRepository;
     private final PasswordEncoder passwordEncoder;
 
     @Value("${minecraft.client.id}")
-    private String clientId;
+    private String minecraftClientId;
 
     @Value("${minecraft.client.secret}")
-    private String clientSecret;
+    private String minecraftClientSecret;
+
+    @Value("${dashboard.bff.client.id}")
+    private String dashboardBffClientId;
+
+    @Value("${dashboard.bff.client.secret:}")
+    private String dashboardBffClientSecret;
 
     public ClientRegistrationService(
         RegisteredClientRepository clientRepository,
@@ -57,8 +71,47 @@ public class ClientRegistrationService {
     }
 
     @PostConstruct
+    public void registerConfiguredClients() {
+        registerMinecraftServerClient();
+        registerDashboardBffClient();
+    }
+
     public void registerMinecraftServerClient() {
-        String normalizedClientSecret = normalizeAndValidateClientSecret();
+        registerConfidentialClient(
+            minecraftClientId,
+            minecraftClientSecret,
+            "Minecraft Game Server",
+            "minecraft.client.secret"
+        );
+    }
+
+    public void registerDashboardBffClient() {
+        if (dashboardBffClientSecret == null || dashboardBffClientSecret.isEmpty()) {
+            log.info(
+                "Dashboard BFF client '{}' not registered because dashboard.bff.client.secret is not configured.",
+                dashboardBffClientId
+            );
+            return;
+        }
+
+        registerConfidentialClient(
+            dashboardBffClientId,
+            dashboardBffClientSecret,
+            "Dashboard BFF",
+            "dashboard.bff.client.secret"
+        );
+    }
+
+    private void registerConfidentialClient(
+        String clientId,
+        String clientSecret,
+        String clientName,
+        String clientSecretPropertyName
+    ) {
+        String normalizedClientSecret = normalizeAndValidateClientSecret(
+            clientSecret,
+            clientSecretPropertyName
+        );
         RegisteredClient existingClient = clientRepository.findByClientId(clientId);
 
         if (existingClient != null) {
@@ -66,11 +119,11 @@ public class ClientRegistrationService {
             return;
         }
 
-        RegisteredClient minecraftServer = RegisteredClient.withId(
+        RegisteredClient confidentialClient = RegisteredClient.withId(
             UUID.randomUUID().toString()
         )
             .clientId(clientId)
-            .clientName("Minecraft Game Server")
+            .clientName(clientName)
             // Secret is bcrypt-hashed before storage
             .clientSecret(passwordEncoder.encode(normalizedClientSecret))
             // CLIENT_SECRET_BASIC: credentials sent via HTTP Basic Auth header
@@ -84,7 +137,7 @@ public class ClientRegistrationService {
             )
             // client_credentials: machine-to-machine, no user involved
             .authorizationGrantType(AuthorizationGrantType.CLIENT_CREDENTIALS)
-            // Scopes the Minecraft server is allowed to request
+            // Scopes the service client is allowed to request
             .scope("api:read")
             .scope("api:write")
             .tokenSettings(
@@ -93,7 +146,7 @@ public class ClientRegistrationService {
                     // without calling the Auth Server on every request
                     .accessTokenFormat(OAuth2TokenFormat.SELF_CONTAINED)
                     // Short lifetime: limits the damage window if a token is
-                    // intercepted. The plugin must re-authenticate after expiry.
+                    // intercepted. The client must re-authenticate after expiry.
                     .accessTokenTimeToLive(Duration.ofMinutes(5))
                     .build()
             )
@@ -105,21 +158,24 @@ public class ClientRegistrationService {
             )
             .build();
 
-        clientRepository.save(minecraftServer);
+        clientRepository.save(confidentialClient);
         log.info("Client '{}' registered successfully.", clientId);
     }
 
-    private String normalizeAndValidateClientSecret() {
+    private String normalizeAndValidateClientSecret(
+        String clientSecret,
+        String propertyName
+    ) {
         if (clientSecret == null) {
             throw new IllegalStateException(
-                "minecraft.client.secret must be provided."
+                propertyName + " must be provided."
             );
         }
 
         String normalizedSecret = clientSecret.trim();
         if (normalizedSecret.isBlank()) {
             throw new IllegalStateException(
-                "minecraft.client.secret must not be blank."
+                propertyName + " must not be blank."
             );
         }
 
@@ -138,18 +194,20 @@ public class ClientRegistrationService {
         boolean authMethodDrift = !existingClient
             .getClientAuthenticationMethods()
             .equals(
-                Set.of(
-                    ClientAuthenticationMethod.CLIENT_SECRET_BASIC,
-                    ClientAuthenticationMethod.CLIENT_SECRET_POST
-                )
+                CONFIDENTIAL_CLIENT_AUTH_METHODS
             );
 
         boolean grantTypeDrift = !existingClient
             .getAuthorizationGrantTypes()
-            .equals(Set.of(AuthorizationGrantType.CLIENT_CREDENTIALS));
+            .equals(CLIENT_CREDENTIALS_GRANT_TYPES);
 
-        if (!secretDrift && !authMethodDrift && !grantTypeDrift) {
-            log.info("Client '{}' already registered and in sync.", clientId);
+        boolean scopeDrift = !existingClient.getScopes().equals(API_SCOPES);
+
+        if (!secretDrift && !authMethodDrift && !grantTypeDrift && !scopeDrift) {
+            log.info(
+                "Client '{}' already registered and in sync.",
+                existingClient.getClientId()
+            );
             return;
         }
 
@@ -176,8 +234,18 @@ public class ClientRegistrationService {
             });
         }
 
+        if (scopeDrift) {
+            clientBuilder.scopes(scopes -> {
+                scopes.clear();
+                scopes.addAll(API_SCOPES);
+            });
+        }
+
         clientRepository.save(clientBuilder.build());
-        log.info("Client '{}' reconciled with configured seed contract.", clientId);
+        log.info(
+            "Client '{}' reconciled with configured seed contract.",
+            existingClient.getClientId()
+        );
     }
 
     private boolean secretMatchesConfigured(

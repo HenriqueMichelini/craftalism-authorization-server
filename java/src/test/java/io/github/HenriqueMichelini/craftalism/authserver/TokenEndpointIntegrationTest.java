@@ -133,6 +133,59 @@ class TokenEndpointIntegrationTest {
     }
 
     @Test
+    void tokenEndpoint_withDashboardBffClientCredentials_returnsWriteScopedJwt()
+        throws Exception {
+        String responseBody = mockMvc
+            .perform(
+                post("/oauth2/token")
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .param("grant_type", "client_credentials")
+                    .param("scope", "api:write")
+                    // Base64("dashboard-bff:dashboard-bff-secret")
+                    .header(
+                        "Authorization",
+                        "Basic ZGFzaGJvYXJkLWJmZjpkYXNoYm9hcmQtYmZmLXNlY3JldA=="
+                    )
+            )
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.access_token").isNotEmpty())
+            .andExpect(jsonPath("$.token_type").value("Bearer"))
+            .andExpect(jsonPath("$.scope").value("api:write"))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+        JsonNode tokenResponse = objectMapper.readTree(responseBody);
+        SignedJWT accessToken = SignedJWT.parse(
+            tokenResponse.get("access_token").asText()
+        );
+
+        assertThat(accessToken.getJWTClaimsSet().getSubject()).isEqualTo(
+            "dashboard-bff"
+        );
+        assertThat(accessToken.getJWTClaimsSet().getClaim("scope")).satisfies(
+            scopeClaim -> {
+                assertThat(scopeClaim).isInstanceOfAny(
+                    String.class,
+                    Collection.class
+                );
+
+                if (scopeClaim instanceof String stringScopeClaim) {
+                    assertThat(stringScopeClaim.split(" ")).contains("api:write");
+                    return;
+                }
+
+                @SuppressWarnings("unchecked")
+                Collection<String> collectionScopeClaim = (Collection<
+                    String
+                >) scopeClaim;
+
+                assertThat(collectionScopeClaim).contains("api:write");
+            }
+        );
+    }
+
+    @Test
     void tokenEndpoint_withInvalidSecret_returnsUnauthorized()
         throws Exception {
         mockMvc

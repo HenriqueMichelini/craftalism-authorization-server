@@ -12,11 +12,13 @@ import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.util.ReflectionTestUtils;
 
 @SpringBootTest
 @ActiveProfiles("test")
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 class ClientRegistrationServiceIntegrationTest {
 
     @Autowired
@@ -34,10 +36,14 @@ class ClientRegistrationServiceIntegrationTest {
         String secretA = "secret-a";
         String secretB = "secret-b";
 
-        ReflectionTestUtils.setField(clientRegistrationService, "clientId", clientId);
         ReflectionTestUtils.setField(
             clientRegistrationService,
-            "clientSecret",
+            "minecraftClientId",
+            clientId
+        );
+        ReflectionTestUtils.setField(
+            clientRegistrationService,
+            "minecraftClientSecret",
             secretA
         );
         clientRegistrationService.registerMinecraftServerClient();
@@ -52,7 +58,7 @@ class ClientRegistrationServiceIntegrationTest {
 
         ReflectionTestUtils.setField(
             clientRegistrationService,
-            "clientSecret",
+            "minecraftClientSecret",
             secretB
         );
         clientRegistrationService.registerMinecraftServerClient();
@@ -77,12 +83,12 @@ class ClientRegistrationServiceIntegrationTest {
     void registerMinecraftServerClient_rejectsBlankClientSecret() {
         ReflectionTestUtils.setField(
             clientRegistrationService,
-            "clientId",
+            "minecraftClientId",
             "minecraft-invalid-secret-client"
         );
         ReflectionTestUtils.setField(
             clientRegistrationService,
-            "clientSecret",
+            "minecraftClientSecret",
             "   "
         );
 
@@ -95,5 +101,62 @@ class ClientRegistrationServiceIntegrationTest {
         assertThat(
             clientRepository.findByClientId("minecraft-invalid-secret-client")
         ).isNull();
+    }
+
+    @Test
+    void registerDashboardBffClient_withConfiguredSecret_registersClient() {
+        String clientId = "dashboard-bff-test-client";
+        String secret = "dashboard-secret";
+
+        ReflectionTestUtils.setField(
+            clientRegistrationService,
+            "dashboardBffClientId",
+            clientId
+        );
+        ReflectionTestUtils.setField(
+            clientRegistrationService,
+            "dashboardBffClientSecret",
+            secret
+        );
+
+        clientRegistrationService.registerDashboardBffClient();
+
+        RegisteredClient registeredClient = clientRepository.findByClientId(clientId);
+        assertThat(registeredClient).isNotNull();
+        assertThat(registeredClient.getClientSecret()).startsWith("{bcrypt}");
+        assertThat(passwordEncoder.matches(secret, registeredClient.getClientSecret()))
+            .isTrue();
+        assertThat(registeredClient.getAuthorizationGrantTypes()).containsExactly(
+            AuthorizationGrantType.CLIENT_CREDENTIALS
+        );
+        assertThat(registeredClient.getScopes()).containsExactlyInAnyOrder(
+            "api:read",
+            "api:write"
+        );
+        assertThat(registeredClient.getClientAuthenticationMethods())
+            .containsExactlyInAnyOrder(
+                ClientAuthenticationMethod.CLIENT_SECRET_BASIC,
+                ClientAuthenticationMethod.CLIENT_SECRET_POST
+            );
+    }
+
+    @Test
+    void registerDashboardBffClient_withoutConfiguredSecret_skipsClient() {
+        String clientId = "dashboard-bff-disabled-client";
+
+        ReflectionTestUtils.setField(
+            clientRegistrationService,
+            "dashboardBffClientId",
+            clientId
+        );
+        ReflectionTestUtils.setField(
+            clientRegistrationService,
+            "dashboardBffClientSecret",
+            ""
+        );
+
+        clientRegistrationService.registerDashboardBffClient();
+
+        assertThat(clientRepository.findByClientId(clientId)).isNull();
     }
 }

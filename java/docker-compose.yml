@@ -52,6 +52,11 @@ services:
       MINECRAFT_CLIENT_ID: ${MINECRAFT_CLIENT_ID:-minecraft-server}
       MINECRAFT_CLIENT_SECRET: ${MINECRAFT_CLIENT_SECRET}
 
+      # Optional confidential client for a server-side dashboard/BFF proxy.
+      # Never expose this secret to browser-visible dashboard configuration.
+      DASHBOARD_BFF_CLIENT_ID: ${DASHBOARD_BFF_CLIENT_ID:-dashboard-bff}
+      DASHBOARD_BFF_CLIENT_SECRET: ${DASHBOARD_BFF_CLIENT_SECRET:-}
+
       # Public URL of this auth server (used as JWT issuer claim).
       # Must be reachable by the API and the Minecraft plugin.
       AUTH_ISSUER_URI: ${AUTH_ISSUER_URI:-http://craftalism-auth-server:9000}
