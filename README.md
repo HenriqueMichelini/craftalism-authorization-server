@@ -106,7 +106,8 @@ Focus auth debugging on protected write routes instead:
 - The API requires `Authorization: Bearer <access_token>` on protected write requests such as `POST /api/players` and `POST /api/balances/transfer`.
 - The API will return `401` when a protected request is missing a token or the token is malformed, expired, or fails issuer/signature validation.
 - This authorization server seeds machine clients only. Browser-facing secrets are not supported; dashboard writes should use a server-side BFF/edge component or a separately scoped browser user-auth feature.
-- When `DASHBOARD_BFF_CLIENT_SECRET` is configured, the `dashboard-bff` confidential client can request `api:write` tokens with `client_credentials` for approved server-side proxy writes.
+- The `minecraft-server` client can request only `api:read` and `api:write`.
+- When `DASHBOARD_BFF_CLIENT_SECRET` is configured, the confidential `dashboard-bff` client can request `api:read`, `api:write`, and `market:admin` with `client_credentials`. The `market:admin` scope is reserved for approved server-side dashboard market requests.
 
 Minimal verification for a protected route:
 
@@ -126,7 +127,7 @@ curl -i -X POST 'http://localhost:3000/api/players' \
 
 If step 2 works but another protected client request still gets `401`, the bug is in client-to-API auth propagation or in issuer/JWKS configuration between the API and authorization server.
 
-Minimal verification for a dashboard/BFF write proxy:
+Minimal server-side verification for a dashboard/BFF market request:
 
 ```bash
 # 1) Configure the auth server with a server-side secret
@@ -137,9 +138,10 @@ export DASHBOARD_BFF_CLIENT_SECRET='replace_me'
 curl -s -X POST 'http://localhost:9000/oauth2/token' \
   -H 'Content-Type: application/x-www-form-urlencoded' \
   -u "dashboard-bff:${DASHBOARD_BFF_CLIENT_SECRET}" \
-  -d 'grant_type=client_credentials&scope=api:write'
+  -d 'grant_type=client_credentials&scope=market:admin'
 
-# 3) The BFF/edge process calls the protected API write with that bearer token.
+# 3) Keep the returned access token in the BFF/edge process and send it only
+#    to the approved protected API request.
 ```
 
 ---

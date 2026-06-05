@@ -77,6 +77,10 @@ class ClientRegistrationServiceIntegrationTest {
         assertThat(reconciledClient.getAuthorizationGrantTypes()).containsExactly(
             AuthorizationGrantType.CLIENT_CREDENTIALS
         );
+        assertThat(reconciledClient.getScopes()).containsExactlyInAnyOrder(
+            "api:read",
+            "api:write"
+        );
     }
 
     @Test
@@ -131,13 +135,81 @@ class ClientRegistrationServiceIntegrationTest {
         );
         assertThat(registeredClient.getScopes()).containsExactlyInAnyOrder(
             "api:read",
-            "api:write"
+            "api:write",
+            "market:admin"
         );
         assertThat(registeredClient.getClientAuthenticationMethods())
             .containsExactlyInAnyOrder(
                 ClientAuthenticationMethod.CLIENT_SECRET_BASIC,
                 ClientAuthenticationMethod.CLIENT_SECRET_POST
             );
+    }
+
+    @Test
+    void registerDashboardBffClient_reconcilesMissingMarketAdminScope() {
+        String clientId = "dashboard-bff-scope-drift-client";
+
+        ReflectionTestUtils.setField(
+            clientRegistrationService,
+            "dashboardBffClientId",
+            clientId
+        );
+        ReflectionTestUtils.setField(
+            clientRegistrationService,
+            "dashboardBffClientSecret",
+            "dashboard-secret"
+        );
+        clientRegistrationService.registerDashboardBffClient();
+
+        RegisteredClient registeredClient = clientRepository.findByClientId(clientId);
+        RegisteredClient driftedClient = RegisteredClient.from(registeredClient)
+            .scopes(scopes -> {
+                scopes.clear();
+                scopes.add("api:read");
+                scopes.add("api:write");
+            })
+            .build();
+        clientRepository.save(driftedClient);
+
+        clientRegistrationService.registerDashboardBffClient();
+
+        RegisteredClient reconciledClient = clientRepository.findByClientId(clientId);
+        assertThat(reconciledClient.getScopes()).containsExactlyInAnyOrder(
+            "api:read",
+            "api:write",
+            "market:admin"
+        );
+    }
+
+    @Test
+    void registerMinecraftServerClient_removesUnauthorizedScopeDrift() {
+        String clientId = "minecraft-scope-drift-client";
+
+        ReflectionTestUtils.setField(
+            clientRegistrationService,
+            "minecraftClientId",
+            clientId
+        );
+        ReflectionTestUtils.setField(
+            clientRegistrationService,
+            "minecraftClientSecret",
+            "minecraft-secret"
+        );
+        clientRegistrationService.registerMinecraftServerClient();
+
+        RegisteredClient registeredClient = clientRepository.findByClientId(clientId);
+        RegisteredClient driftedClient = RegisteredClient.from(registeredClient)
+            .scope("market:admin")
+            .build();
+        clientRepository.save(driftedClient);
+
+        clientRegistrationService.registerMinecraftServerClient();
+
+        RegisteredClient reconciledClient = clientRepository.findByClientId(clientId);
+        assertThat(reconciledClient.getScopes()).containsExactlyInAnyOrder(
+            "api:read",
+            "api:write"
+        );
     }
 
     @Test

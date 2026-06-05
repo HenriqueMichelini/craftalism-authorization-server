@@ -45,7 +45,15 @@ public class ClientRegistrationService {
         );
     private static final Set<AuthorizationGrantType> CLIENT_CREDENTIALS_GRANT_TYPES =
         Set.of(AuthorizationGrantType.CLIENT_CREDENTIALS);
-    private static final Set<String> API_SCOPES = Set.of("api:read", "api:write");
+    private static final Set<String> MINECRAFT_SERVER_SCOPES = Set.of(
+        "api:read",
+        "api:write"
+    );
+    private static final Set<String> DASHBOARD_BFF_SCOPES = Set.of(
+        "api:read",
+        "api:write",
+        "market:admin"
+    );
 
     private final RegisteredClientRepository clientRepository;
     private final PasswordEncoder passwordEncoder;
@@ -81,7 +89,8 @@ public class ClientRegistrationService {
             minecraftClientId,
             minecraftClientSecret,
             "Minecraft Game Server",
-            "minecraft.client.secret"
+            "minecraft.client.secret",
+            MINECRAFT_SERVER_SCOPES
         );
     }
 
@@ -98,7 +107,8 @@ public class ClientRegistrationService {
             dashboardBffClientId,
             dashboardBffClientSecret,
             "Dashboard BFF",
-            "dashboard.bff.client.secret"
+            "dashboard.bff.client.secret",
+            DASHBOARD_BFF_SCOPES
         );
     }
 
@@ -106,7 +116,8 @@ public class ClientRegistrationService {
         String clientId,
         String clientSecret,
         String clientName,
-        String clientSecretPropertyName
+        String clientSecretPropertyName,
+        Set<String> intendedScopes
     ) {
         String normalizedClientSecret = normalizeAndValidateClientSecret(
             clientSecret,
@@ -115,7 +126,11 @@ public class ClientRegistrationService {
         RegisteredClient existingClient = clientRepository.findByClientId(clientId);
 
         if (existingClient != null) {
-            reconcileExistingClient(existingClient, normalizedClientSecret);
+            reconcileExistingClient(
+                existingClient,
+                normalizedClientSecret,
+                intendedScopes
+            );
             return;
         }
 
@@ -138,8 +153,7 @@ public class ClientRegistrationService {
             // client_credentials: machine-to-machine, no user involved
             .authorizationGrantType(AuthorizationGrantType.CLIENT_CREDENTIALS)
             // Scopes the service client is allowed to request
-            .scope("api:read")
-            .scope("api:write")
+            .scopes(clientScopes -> clientScopes.addAll(intendedScopes))
             .tokenSettings(
                 TokenSettings.builder()
                     // Self-contained JWT — the API validates it locally
@@ -184,7 +198,8 @@ public class ClientRegistrationService {
 
     private void reconcileExistingClient(
         RegisteredClient existingClient,
-        String normalizedClientSecret
+        String normalizedClientSecret,
+        Set<String> intendedScopes
     ) {
         boolean secretDrift = !secretMatchesConfigured(
             normalizedClientSecret,
@@ -201,7 +216,7 @@ public class ClientRegistrationService {
             .getAuthorizationGrantTypes()
             .equals(CLIENT_CREDENTIALS_GRANT_TYPES);
 
-        boolean scopeDrift = !existingClient.getScopes().equals(API_SCOPES);
+        boolean scopeDrift = !existingClient.getScopes().equals(intendedScopes);
 
         if (!secretDrift && !authMethodDrift && !grantTypeDrift && !scopeDrift) {
             log.info(
@@ -237,7 +252,7 @@ public class ClientRegistrationService {
         if (scopeDrift) {
             clientBuilder.scopes(scopes -> {
                 scopes.clear();
-                scopes.addAll(API_SCOPES);
+                scopes.addAll(intendedScopes);
             });
         }
 
