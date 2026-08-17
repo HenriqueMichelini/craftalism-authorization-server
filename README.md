@@ -1,194 +1,129 @@
 # Craftalism Authorization Server
 
-> OAuth 2.1 and OpenID Connect authorization server that issues short-lived, RSA-signed JWT access tokens for trusted Craftalism services.
+OAuth 2.0 authorization server for trusted Craftalism services. It issues short-lived, RSA-signed JWT access tokens through the `client_credentials` grant and publishes the metadata and keys that resource servers need to validate them.
 
----
+## Capabilities
 
-## Overview
+- Issues self-contained JWT access tokens at `POST /oauth2/token`.
+- Publishes a JSON Web Key Set (JWKS) at `GET /oauth2/jwks`.
+- Exposes OAuth 2.0 authorization-server and OpenID Connect discovery metadata.
+- Supports client-authenticated token introspection and revocation.
+- Stores registered clients, authorizations, and consents in PostgreSQL.
+- Seeds and reconciles the configured Minecraft client and an optional dashboard/BFF client at startup.
+- Denies application routes that are not part of the authorization-server protocol or the public health endpoint.
 
-The authorization server centralizes authentication for the Craftalism ecosystem. It is designed for machine-to-machine flows: trusted clients (currently the Minecraft game server plugin) authenticate via `client_credentials` and receive a signed JWT that downstream services validate locally against the published JWKS.
+The configured service clients support only the `client_credentials` grant. This project does not configure an end-user login or authorization-code flow.
 
-**Key capabilities:**
+## Technology
 
-- Issues access tokens via the OAuth 2.0 `client_credentials` grant at `POST /oauth2/token`.
-- Publishes RSA public keys at `GET /oauth2/jwks` for local token verification by downstream services.
-- Exposes standard OIDC and OAuth 2.0 discovery metadata.
-- Supports token introspection (`/oauth2/introspect`) and revocation (`/oauth2/revoke`).
-- Seeds the Minecraft registered client (`minecraft-server` by default) idempotently on startup.
-- Optionally seeds a confidential dashboard/BFF client for server-side dashboard write proxies.
-- Enforces a deny-by-default HTTP policy; only explicitly listed public endpoints are accessible without a valid token.
-
----
-
-## Architecture
-
-The service is a layered Spring Boot application with explicit security configuration.
-
-### Security model
-
-Two filter chains run in order:
-
-1. **Order 1 — Protocol chain:** handles all `/oauth2/*` and discovery endpoints according to OAuth 2.0/OIDC rules.
-2. **Order 2 — Fallback chain:** stateless, session-less. Permits only the following paths; all others are denied with 401/403:
-   - `GET /actuator/health`
-   - `GET /oauth2/jwks`
-   - `GET /.well-known/oauth-authorization-server`
-   - `GET /.well-known/openid-configuration`
-
-### Key components
-
-**`AuthorizationServerConfig`** — wires protocol endpoints, JDBC-backed repositories and services, JWT/JWK components, issuer metadata, and password encoding.
-
-**`SecurityConfig`** — defines the fallback filter chain.
-
-**`RsaKeyConfig`** — parses PEM keys from environment variables, or generates an ephemeral RSA key pair if none are provided.
-
-**`ClientRegistrationService`** — seeds the registered OAuth client at startup. The operation is idempotent.
-
-**JDBC persistence** — Spring Authorization Server's JDBC repositories persist clients, authorizations, and consents into tables initialized by `schema.sql`.
-
----
-
-## Tech Stack
-
-| Category | Technology |
+| Component | Version or implementation |
 |---|---|
-| Language | Java 17 |
-| Framework | Spring Boot 3.5 |
-| Security / Auth | Spring Security + Spring Authorization Server |
-| Database Access | Spring JDBC |
-| Database (runtime) | PostgreSQL |
-| Database (tests) | H2 (PostgreSQL compatibility mode) |
-| Build Tool | Gradle Wrapper |
-| Packaging | Docker multi-stage image |
+| Java | 17 |
+| Spring Boot | 3.5.11 |
+| Authorization framework | Spring Authorization Server |
+| Runtime database | PostgreSQL through Spring JDBC |
+| Test database | H2 in PostgreSQL compatibility mode |
+| Build | Gradle Wrapper 9.2.1 |
+| Container | Multi-stage Eclipse Temurin 17 image |
 
----
+## Security and persistence
+
+Two ordered Spring Security filter chains define the HTTP surface:
+
+1. The authorization-server chain handles OAuth 2.0 and OpenID Connect protocol endpoints.
+2. The stateless fallback chain permits the health probe and denies every other unmatched request.
+
+The service initializes the Spring Authorization Server JDBC tables from `schema.sql` on every startup. The statements use `CREATE TABLE IF NOT EXISTS`; the configured PostgreSQL database itself must already exist.
+
+New seeded clients use both `client_secret_basic` and `client_secret_post`, receive self-contained access tokens with a five-minute lifetime, and do not require user consent. On startup, existing seeded registrations are reconciled for secret, authentication methods, grant type, and allowed scopes.
 
 ## Prerequisites
 
-- Java 17+
-- Docker Engine 20.10+ and Docker Compose v2+ *(for containerized deployment only)*
-- A running PostgreSQL instance *(for local Gradle run)*
-
----
+- Java 17 or newer. A system Gradle installation is not required.
+- A PostgreSQL database when running the application.
+- Docker Engine and Docker Compose v2 only when working with the container configuration.
+- OpenSSL or another way to create a PKCS#8 RSA private key and X.509 public key for persistent environments.
 
 ## Configuration
 
-| Variable | Default | Description |
+| Environment variable | Default | Description |
 |---|---|---|
-| `DB_URL` | — | **Required.** JDBC connection string, e.g. `jdbc:postgresql://localhost:5432/authserver`. |
-| `DB_USER` | — | **Required.** Database username. |
-| `DB_PASSWORD` | — | **Required.** Database password. |
-| `MINECRAFT_CLIENT_SECRET` | — | **Required.** Secret for the seeded `minecraft-server` OAuth client. |
-| `AUTH_ISSUER_URI` | `http://craftalism-auth-server:9000` | JWT issuer URI. Must match the value configured in downstream services (especially `spring.security.oauth2.resourceserver.jwt.issuer-uri` in the API). |
-| `MINECRAFT_CLIENT_ID` | `minecraft-server` | Client ID for the seeded OAuth client. |
-| `DASHBOARD_BFF_CLIENT_ID` | `dashboard-bff` | Client ID for the optional confidential dashboard/BFF client. |
-| `DASHBOARD_BFF_CLIENT_SECRET` | — | Optional secret for the dashboard/BFF client. When blank, the client is not registered. Keep this server-side only; never expose it in browser-visible dashboard config. |
-| `RSA_PRIVATE_KEY` | — | PEM-encoded RSA private key. Supports literal `\n` as line separator. |
-| `RSA_PUBLIC_KEY` | — | PEM-encoded RSA public key. Supports literal `\n` as line separator. |
-| `RSA_ALLOW_EPHEMERAL` | `false` | Allows startup without RSA key material. Intended only for local/dev/test use. |
+| `DB_URL` | none | JDBC URL, for example `jdbc:postgresql://localhost:5432/authserver`. |
+| `DB_USER` | none | Database username. |
+| `DB_PASSWORD` | none | Database password. |
+| `AUTH_ISSUER_URI` | `http://craftalism-auth-server:9000` | Issuer written to tokens and discovery metadata. Set this to the canonical URL used by resource servers. |
+| `MINECRAFT_CLIENT_ID` | `minecraft-server` | Client ID for the required Minecraft service client. |
+| `MINECRAFT_CLIENT_SECRET` | none | Required secret for the Minecraft service client. Blank values fail startup. |
+| `DASHBOARD_BFF_CLIENT_ID` | `dashboard-bff` | Client ID for the optional server-side dashboard/BFF client. |
+| `DASHBOARD_BFF_CLIENT_SECRET` | empty | Enables the dashboard/BFF client when set. Keep this secret out of browser-visible configuration. |
+| `RSA_PRIVATE_KEY` | empty | PKCS#8 PEM-encoded RSA private key. Real newlines and literal `\n` separators are accepted. |
+| `RSA_PUBLIC_KEY` | empty | X.509 PEM-encoded RSA public key. Real newlines and literal `\n` separators are accepted. |
+| `RSA_ALLOW_EPHEMERAL` | `false` | Allows an ephemeral 2048-bit RSA key pair when persistent key material is missing. Use only for local development. |
 
-> **Important:** If `RSA_PRIVATE_KEY` and `RSA_PUBLIC_KEY` are not provided, the service generates an ephemeral key pair on startup. Tokens issued with an ephemeral key become unverifiable after a restart. Do not use ephemeral keys in persistent environments.
+`DB_URL`, `DB_USER`, `DB_PASSWORD`, and `MINECRAFT_CLIENT_SECRET` are required for a normal application start. Provide both RSA key variables, or explicitly enable ephemeral keys. The `local`, `dev`, and `test` Spring profiles also allow ephemeral keys.
 
-> **Docker note:** inside the Docker network, `localhost` points to the current container, not the auth server. If the API validates tokens against `http://craftalism-auth-server:9000` but this service issues tokens with `iss=http://localhost:9000`, the API will reject every token with 401. Keep one canonical issuer URI across all services.
+If only one RSA key is supplied, it is not used as a partial key pair. Startup fails unless ephemeral mode is allowed.
 
-For key generation and deployment wiring guidance, see the [Craftalism Deployment repository](https://github.com/HenriqueMichelini/craftalism-deployment).
+### Generate RSA keys
 
----
-
-
-## Dashboard/API auth troubleshooting
-
-`GET /api/*` routes are intentionally public in the current API security model, so a `GET /api/players 401` usually means the request never matched the expected read-only route or the wrong service/port is being called.
-
-Focus auth debugging on protected write routes instead:
-- `craftalism-dashboard` does not need a bearer token for read-only `GET /api/*` requests today.
-- The API requires `Authorization: Bearer <access_token>` on protected write requests such as `POST /api/players` and `POST /api/balances/transfer`.
-- The API will return `401` when a protected request is missing a token or the token is malformed, expired, or fails issuer/signature validation.
-- This authorization server seeds machine clients only. Browser-facing secrets are not supported; dashboard writes should use a server-side BFF/edge component or a separately scoped browser user-auth feature.
-- The `minecraft-server` client can request only `api:read` and `api:write`.
-- When `DASHBOARD_BFF_CLIENT_SECRET` is configured, the confidential `dashboard-bff` client can request `api:read`, `api:write`, and `market:admin` with `client_credentials`. The `market:admin` scope is reserved for approved server-side dashboard market requests.
-
-Minimal verification for a protected route:
+This repository does not include a key-generation script. One way to create keys with OpenSSL is:
 
 ```bash
-# 1) Obtain token from auth server
-curl -s -X POST 'http://localhost:9000/oauth2/token' \
-  -H 'Content-Type: application/x-www-form-urlencoded' \
-  -u "minecraft-server:${MINECRAFT_CLIENT_SECRET}" \
-  -d 'grant_type=client_credentials&scope=api:write'
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out private.pem
+openssl pkey -in private.pem -pubout -out public.pem
 
-# 2) Call a protected API route with the token
-curl -i -X POST 'http://localhost:3000/api/players' \
-  -H 'Content-Type: application/json' \
-  -H "Authorization: Bearer <access_token>" \
-  -d '{"uuid":"00000000-0000-0000-0000-000000000001","name":"SmokeTest"}'
+export RSA_PRIVATE_KEY="$(cat private.pem)"
+export RSA_PUBLIC_KEY="$(cat public.pem)"
 ```
 
-If step 2 works but another protected client request still gets `401`, the bug is in client-to-API auth propagation or in issuer/JWKS configuration between the API and authorization server.
+Ephemeral keys change at every restart, so previously issued tokens can no longer be verified. Do not enable ephemeral mode in a persistent environment.
 
-Minimal server-side verification for a dashboard/BFF market request:
+## Run locally
 
-```bash
-# 1) Configure the auth server with a server-side secret
-export DASHBOARD_BFF_CLIENT_ID='dashboard-bff'
-export DASHBOARD_BFF_CLIENT_SECRET='replace_me'
-
-# 2) Obtain a token from the server-side BFF/edge process, not from browser code
-curl -s -X POST 'http://localhost:9000/oauth2/token' \
-  -H 'Content-Type: application/x-www-form-urlencoded' \
-  -u "dashboard-bff:${DASHBOARD_BFF_CLIENT_SECRET}" \
-  -d 'grant_type=client_credentials&scope=market:admin'
-
-# 3) Keep the returned access token in the BFF/edge process and send it only
-#    to the approved protected API request.
-```
-
----
-
-## Running Locally
+Create the target PostgreSQL database first, then run from the Gradle project directory:
 
 ```bash
 cd java
 export DB_URL='jdbc:postgresql://localhost:5432/authserver'
 export DB_USER='your_user'
 export DB_PASSWORD='your_password'
+export AUTH_ISSUER_URI='http://localhost:9000'
 export MINECRAFT_CLIENT_SECRET='replace_me'
-export DASHBOARD_BFF_CLIENT_SECRET='replace_me_dashboard_bff_secret'
+export RSA_ALLOW_EPHEMERAL='true'
 ./gradlew bootRun
 ```
 
-Service is available at `http://localhost:9000`.
+The example explicitly enables ephemeral keys for local development. For persistent use, omit `RSA_ALLOW_EPHEMERAL` and set `RSA_PRIVATE_KEY` and `RSA_PUBLIC_KEY` instead.
 
----
-
-## Running with Docker
+The service listens on `http://localhost:9000`. Verify startup with:
 
 ```bash
-cd java
-docker compose up --build
+curl --fail http://localhost:9000/actuator/health
 ```
 
-| Service | Port | URL |
+## Seeded clients
+
+| Client | Enabled when | Allowed scopes |
 |---|---|---|
-| Authorization Server | 9000 | `http://localhost:9000` |
+| Minecraft (`minecraft-server` by default) | Always; its secret is required | `api:read`, `api:write` |
+| Dashboard/BFF (`dashboard-bff` by default) | `DASHBOARD_BFF_CLIENT_SECRET` is set | `api:read`, `api:write`, `market:admin` |
 
-> **Note:** `docker-compose.yml` expects an external `craftalism-network` and a healthy `postgres` service to already exist. A one-shot `auth-db-init` container attempts to create the `authserver` database before the application starts.
+The dashboard/BFF client is confidential and intended for server-side use. In particular, Market Events administrative calls require a server-side token with `market:admin`; browser code must not receive the client secret.
 
----
+Changing a configured seeded-client secret causes the stored password hash to be updated at the next startup. The seed process also corrects drift in its authentication methods, grant type, and scope set.
 
-## API Reference
+## Request a token
 
-### Token issuance
+The following example uses HTTP Basic client authentication:
 
 ```bash
-curl -X POST 'http://localhost:9000/oauth2/token' \
+curl --fail-with-body -X POST 'http://localhost:9000/oauth2/token' \
   -H 'Content-Type: application/x-www-form-urlencoded' \
-  -u "minecraft-server:${MINECRAFT_CLIENT_SECRET}" \
+  -u "${MINECRAFT_CLIENT_ID:-minecraft-server}:${MINECRAFT_CLIENT_SECRET}" \
   -d 'grant_type=client_credentials&scope=api:read api:write'
 ```
 
-Response:
+An example response is:
 
 ```json
 {
@@ -199,84 +134,87 @@ Response:
 }
 ```
 
-### OAuth2 protocol endpoints
+Request the Market Events administration scope only from the server-side dashboard/BFF process:
 
-These endpoints are part of the authorization-server protocol surface. They are not anonymous public routes: token, introspection, and revocation requests require appropriate client authentication according to the OAuth2 protocol.
+```bash
+curl --fail-with-body -X POST 'http://localhost:9000/oauth2/token' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -u "${DASHBOARD_BFF_CLIENT_ID:-dashboard-bff}:${DASHBOARD_BFF_CLIENT_SECRET}" \
+  -d 'grant_type=client_credentials&scope=market:admin'
+```
 
-| Method | Path | Access | Description |
+Clients may alternatively send `client_id` and `client_secret` as form fields because `client_secret_post` is enabled.
+
+## Endpoints
+
+| Method | Path | Access | Purpose |
 |---|---|---|---|
-| `POST` | `/oauth2/token` | client-authenticated | Issue an access token. |
-| `POST` | `/oauth2/introspect` | client-authenticated | Introspect a token. |
-| `POST` | `/oauth2/revoke` | client-authenticated | Revoke a token. |
+| `POST` | `/oauth2/token` | Client authenticated | Issue an access token. |
+| `POST` | `/oauth2/introspect` | Client authenticated | Inspect server-side token state. |
+| `POST` | `/oauth2/revoke` | Client authenticated | Revoke a token in the authorization store. |
+| `GET` | `/oauth2/jwks` | Public | Return the current RSA public key. |
+| `GET` | `/.well-known/openid-configuration` | Public | Return OpenID Connect discovery metadata. |
+| `GET` | `/.well-known/oauth-authorization-server` | Public | Return OAuth 2.0 authorization-server metadata. |
+| `GET` | `/actuator/health` | Public | Return service health without details. |
 
-### Anonymous discovery and health endpoints
+Resource servers that validate self-contained JWTs locally do not consult the authorization store on every request. Consequently, revoking a token does not make those resource servers reject it immediately; they must use introspection or wait for the token's five-minute expiry to observe that change.
 
-| Method | Path | Access | Description |
-|---|---|---|---|
-| `GET` | `/oauth2/jwks` | anonymous | Fetch public keys for JWT verification. |
-| `GET` | `/.well-known/openid-configuration` | anonymous | OIDC discovery metadata. |
-| `GET` | `/.well-known/oauth-authorization-server` | anonymous | OAuth 2.0 server metadata. |
-| `GET` | `/actuator/health` | anonymous | Health check. |
+## Test and build
 
----
-
-## Testing
-
-Tests use `application-test.properties` and an H2 in-memory database in PostgreSQL compatibility mode.
+Tests use the `test` Spring profile, an H2 in-memory database, test client credentials, and ephemeral RSA keys.
 
 ```bash
 cd java
 ./gradlew test
+./gradlew build
 ```
 
-Test coverage includes: token issuance, JWT shape validation, public endpoint accessibility, and deny-by-default behavior for protected paths.
+The integration tests cover token issuance through both supported client-authentication methods, JWT claims, client scope restrictions, public JWKS/discovery/health access, deny-by-default behavior, and seeded-client registration and reconciliation.
 
----
+CI runs `./gradlew --no-daemon build` for pushes to `main` and pull requests. A separate compatibility workflow exercises repeated builds, configuration cache, build cache, parallel execution, and a conservative worker limit. Version tags matching `v*.*.*` trigger verification and publication of the container image to GitHub Container Registry.
 
-## Project Structure
+## Container image
+
+Build the image from the Java project directory:
+
+```bash
+cd java
+docker build -t craftalism-authorization-server .
+```
+
+The image runs as a non-root user and exposes port 9000. Supply the same required database, issuer, client, and RSA settings described above when starting it.
+
+The checked-in `java/docker-compose.yml` is intended to join an existing external `craftalism-network` and reuse a healthy service named `postgres`. It is not a standalone PostgreSQL stack. The current descriptor also fails `docker compose config` because `auth-db-init.command` and `depends_on` are incorrectly nested under `environment`; correct that Compose configuration before relying on `docker compose up`.
+
+## Project structure
 
 ```text
-java/
-├── build.gradle
-├── docker-compose.yml
-├── Dockerfile
-└── src/
-    ├── main/java/io/github/HenriqueMichelini/craftalism/authserver/
-    │   ├── Application.java
-    │   ├── config/
-    │   │   ├── AuthorizationServerConfig.java
-    │   │   ├── RsaKeyConfig.java
-    │   │   └── SecurityConfig.java
-    │   ├── keys/
-    │   │   └── RsaKeyProperties.java
-    │   └── service/
-    │       └── ClientRegistrationService.java
-    └── main/resources/
-        ├── application.properties
-        ├── application-test.properties
-        └── schema.sql
+.
+├── .github/workflows/          # CI, Gradle compatibility, and image publishing
+├── docs/                       # Repository contracts and backlog documentation
+├── java/
+│   ├── build.gradle
+│   ├── docker-compose.yml
+│   ├── Dockerfile
+│   ├── gradle/                 # Gradle Wrapper files
+│   └── src/
+│       ├── main/
+│       │   ├── java/io/github/HenriqueMichelini/craftalism/authserver/
+│       │   └── resources/
+│       │       ├── application.properties
+│       │       └── schema.sql
+│       └── test/               # H2-backed integration tests
+├── LICENSE
+└── README.md
 ```
 
----
+## Current limitations
 
-## Known Limitations
-
-- No `generate-keys.sh` script is present in this repository. RSA keys must be generated externally (for example with OpenSSL) and injected via environment variables.
-- No introspection or revocation usage examples are documented.
-- Integration tests run against H2, not real PostgreSQL.
-- CI currently runs Gradle tests only; no additional static analysis or security scanning gates are configured.
-
----
-
-## Roadmap
-
-- Add a `generate-keys.sh` utility script for RSA key pair generation.
-- Add containerized integration tests against real PostgreSQL.
-- Document introspection and revocation endpoint usage with examples.
-- Expand CI beyond tests (lint, dependency/security scanning, and build verification).
-
----
+- Integration tests use H2 rather than a real PostgreSQL instance.
+- RSA signing uses one active key pair; the repository does not implement an overlapping key-rotation workflow.
+- Database schema setup uses startup SQL rather than versioned migrations.
+- The checked-in Compose descriptor needs the correction described above before it can be used.
 
 ## License
 
-This repository currently does not include a checked-in `LICENSE` file. Align the repository metadata and README with the intended license before claiming one here.
+Licensed under the [MIT License](LICENSE).
